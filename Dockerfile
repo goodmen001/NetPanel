@@ -21,10 +21,10 @@ ARG TARGETARCH
 ARG TARGETOS
 
 # 根据目标架构安装对应的 CGO 交叉编译工具链
-# amd64 构建机器交叉编译 arm64 需要 musl-cross（含 aarch64-linux-musl-gcc）
+# amd64 构建机器交叉编译 arm64 需要 aarch64-linux-musl-cross（含 aarch64-linux-musl-gcc）
 RUN apk add --no-cache gcc musl-dev && \
     if [ "$TARGETARCH" = "arm64" ]; then \
-        apk add --no-cache musl-cross; \
+        apk add --no-cache aarch64-linux-musl-cross; \
     fi
 
 WORKDIR /app

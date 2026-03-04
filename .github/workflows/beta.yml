@@ -60,11 +60,11 @@ jobs:
             arch: x86_64
             bin: easytier-core.exe
             ext: zip
-          - os: windows
-            arch: arm64
-            bin: easytier-core.exe
-            ext: zip
-          - os: macos
+          # windows/arm64 暂时禁用
+          # - os: windows
+          #   arch: arm64
+          #   bin: easytier-core.exe
+          #   ext: zip
             arch: x86_64
             bin: easytier-core
             ext: zip
@@ -134,14 +134,15 @@ jobs:
             cc: x86_64-w64-mingw32-gcc
             output: netpanel.exe
             pkg_ext: zip
-          - goos: windows
-            goarch: arm64
-            et_os: windows
-            et_arch: arm64
-            et_bin: easytier-core.exe
-            cc: aarch64-w64-mingw32-gcc
-            output: netpanel.exe
-            pkg_ext: zip
+          # windows/arm64 暂时禁用（.syso 交叉编译重定位问题待解决）
+          # - goos: windows
+          #   goarch: arm64
+          #   et_os: windows
+          #   et_arch: arm64
+          #   et_bin: easytier-core.exe
+          #   cc: aarch64-w64-mingw32-gcc
+          #   output: netpanel.exe
+          #   pkg_ext: zip
 
     steps:
       - uses: actions/checkout@v4

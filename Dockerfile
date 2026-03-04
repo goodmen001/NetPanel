@@ -11,6 +11,11 @@ COPY webpage/ ./
 RUN npm run build
 
 # ─────────────────────────────────────────────
+# xx：Docker 官方交叉编译辅助工具
+# ─────────────────────────────────────────────
+FROM --platform=$BUILDPLATFORM tonistiigi/xx AS xx
+
+# ─────────────────────────────────────────────
 # 阶段 2：构建后端（支持交叉编译到目标架构）
 # ─────────────────────────────────────────────
 FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS backend-builder
@@ -20,12 +25,12 @@ ARG TARGETPLATFORM
 ARG TARGETARCH
 ARG TARGETOS
 
-# 根据目标架构安装对应的 CGO 交叉编译工具链
-# amd64 构建机器交叉编译 arm64 需要 aarch64-linux-musl-cross（含 aarch64-linux-musl-gcc）
+# 引入 xx 工具（提供 xx-apk、xx-go、xx-cc 等辅助命令）
+COPY --from=xx / /
+
+# 安装本机 gcc/musl-dev，再由 xx-apk 为目标架构安装交叉编译工具链
 RUN apk add --no-cache gcc musl-dev && \
-    if [ "$TARGETARCH" = "arm64" ]; then \
-        apk add --no-cache aarch64-linux-musl-cross; \
-    fi
+    xx-apk add --no-cache gcc musl-dev
 
 WORKDIR /app
 
@@ -45,12 +50,9 @@ COPY --from=frontend-builder /app/backend/embed/dist/ ./embed/dist/
 ARG VERSION=docker
 ARG BUILD_TIME
 
-# 根据目标架构设置交叉编译环境
+# 使用 xx-go 自动设置 GOARCH/CC 等交叉编译环境变量
 RUN BUILD_TIME=${BUILD_TIME:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')} && \
-    if [ "$TARGETARCH" = "arm64" ]; then \
-        export CC=aarch64-linux-musl-gcc; \
-    fi && \
-    CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build \
+    CGO_ENABLED=1 xx-go build \
       -ldflags="-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" \
       -o /app/netpanel .
 

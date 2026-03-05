@@ -29,8 +29,9 @@ ARG TARGETOS
 COPY --from=xx / /
 
 # 安装本机 gcc/musl-dev，再由 xx-apk 为目标架构安装交叉编译工具链
-RUN apk add --no-cache gcc musl-dev && \
-    xx-apk add --no-cache gcc musl-dev
+# 同时安装 binutils 以确保目标架构的汇编器（as）可用
+RUN apk add --no-cache gcc musl-dev binutils && \
+    xx-apk add --no-cache gcc musl-dev binutils
 
 WORKDIR /app
 
@@ -51,7 +52,11 @@ ARG VERSION=docker
 ARG BUILD_TIME
 
 # 使用 xx-go 自动设置 GOARCH/CC 等交叉编译环境变量
+# 同时显式设置 AS 为目标架构的汇编器，避免交叉编译时 CGO 使用宿主机汇编器
+# 导致 ARM64 汇编文件（如 kcp-go/reedsolomon 中的 gcc_arm64.S）编译失败
 RUN BUILD_TIME=${BUILD_TIME:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')} && \
+    CROSS_PREFIX=$(xx-info triple) && \
+    AS=${CROSS_PREFIX}-as \
     CGO_ENABLED=1 xx-go build \
       -ldflags="-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" \
       -o /app/netpanel .

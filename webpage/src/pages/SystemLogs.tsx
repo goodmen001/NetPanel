@@ -157,7 +157,7 @@ const SystemLogs: React.FC = () => {
       key: 'log_time',
       width: 170,
       render: (v: string) => (
-        <Text style={{ fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+<Text style={{ fontSize: 12, fontFamily: "'MapleMono', monospace", whiteSpace: 'nowrap' }}>
           {dayjs(v).format('YYYY-MM-DD HH:mm:ss')}
         </Text>
       ),
@@ -200,7 +200,7 @@ const SystemLogs: React.FC = () => {
               style={{
                 fontSize: 13,
                 color: isError ? '#ff4d4f' : undefined,
-                fontFamily: 'monospace',
+                fontFamily: "'MapleMono', monospace",
               }}
             >
               {v}

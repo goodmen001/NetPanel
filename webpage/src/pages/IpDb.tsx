@@ -332,7 +332,7 @@ const EntryTab: React.FC = () => {
             <TextArea
               rows={12}
               placeholder={t('ipdb.importTextPlaceholder')}
-              style={{ fontFamily: 'monospace', fontSize: 13 }}
+style={{ fontFamily: "'MapleMono', monospace", fontSize: 13 }}
             />
           </Form.Item>
         </Form>

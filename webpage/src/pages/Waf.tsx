@@ -368,7 +368,7 @@ const Waf: React.FC = () => {
             <TextArea
               rows={6}
               placeholder={`# 示例：拦截包含 /admin 路径的请求\nSecRule REQUEST_URI "@contains /admin" "id:1001,phase:1,deny,status:403,msg:'Block admin path'"\n\n# 示例：拦截 SQL 注入特征\nSecRule ARGS "@detectSQLi" "id:1002,phase:2,deny,status:403,msg:'SQL Injection'"`}
-              style={{ fontFamily: 'monospace', fontSize: 12 }}
+              style={{ fontFamily: "'MapleMono', monospace", fontSize: 12 }}
             />
           </Form.Item>
 

@@ -489,7 +489,7 @@ const PortForward: React.FC = () => {
                     padding: 16,
                     maxHeight: 400,
                     overflow: 'auto',
-                    fontFamily: 'monospace',
+fontFamily: "'MapleMono', monospace",
                     fontSize: 12,
                     color: '#d4d4d4',
                 }}>

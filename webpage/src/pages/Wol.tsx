@@ -151,7 +151,7 @@ const Wol: React.FC = () => {
               message: '请输入有效的MAC地址，如：AA:BB:CC:DD:EE:FF',
             }]}
           >
-            <Input placeholder="AA:BB:CC:DD:EE:FF" style={{ fontFamily: 'monospace', width: '100%' }} />
+            <Input placeholder="AA:BB:CC:DD:EE:FF" style={{ fontFamily: "'MapleMono', monospace", width: '100%' }} />
           </Form.Item>
 
           <Row gutter={16}>

@@ -144,7 +144,37 @@ func (h *SystemHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	// 查询当前密码
+	// 获取当前登录用户名
+	username := c.GetString("username")
+
+	// 优先从 User 表验证并更新密码
+	var user model.User
+	if err := h.db.Where("username = ?", username).First(&user).Error; err == nil {
+		// User 表中存在该用户，验证旧密码
+		if !utils.CheckPassword(req.OldPassword, user.Password) {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "旧密码错误"})
+			return
+		}
+		// 加密新密码
+		hashed, err := utils.HashPassword(req.NewPassword)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "密码加密失败"})
+			return
+		}
+		// 更新 User 表中的密码
+		if err := h.db.Model(&user).Update("password", hashed).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "密码更新失败"})
+			return
+		}
+		// 如果是 admin 用户，同步更新 SystemConfig 中的 admin_password（兼容旧逻辑）
+		if username == "admin" {
+			h.db.Model(&model.SystemConfig{}).Where("key = ?", "admin_password").Update("value", hashed)
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 200, "message": "密码修改成功"})
+		return
+	}
+
+	// User 表中不存在，兼容旧版：通过 SystemConfig 验证（仅 admin）
 	var cfg model.SystemConfig
 	if err := h.db.Where("key = ?", "admin_password").First(&cfg).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询密码失败"})

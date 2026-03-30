@@ -288,7 +288,7 @@ const Caddy: React.FC = () => {
 
           <Form.Item name="extra_config" label="额外 Caddyfile 配置"
             extra="将直接追加到站点块内，请确保语法正确">
-            <Input.TextArea rows={3} placeholder="header / * {\n  X-Frame-Options DENY\n}" style={{ fontFamily: 'monospace', fontSize: 12 }} />
+            <Input.TextArea rows={3} placeholder="header / * {\n  X-Frame-Options DENY\n}" style={{ fontFamily: "'MapleMono', monospace", fontSize: 12 }} />
           </Form.Item>
 
           <Form.Item name="remark" label={t('common.remark')}>

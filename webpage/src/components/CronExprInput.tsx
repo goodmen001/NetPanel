@@ -316,7 +316,7 @@ const CronExprInput: React.FC<CronExprInputProps> = ({ value = '', onChange }) =
           ) : null
         }
         style={{
-          fontFamily: 'monospace',
+fontFamily: "'MapleMono', monospace",
           fontSize: 13,
           borderColor: rawExpr && !isValid ? '#faad14' : undefined,
         }}
@@ -330,7 +330,7 @@ const CronExprInput: React.FC<CronExprInputProps> = ({ value = '', onChange }) =
         {rawExpr && isValid && (
           <Tag
             color="blue"
-            style={{ fontFamily: 'monospace', fontSize: 11, margin: 0 }}
+style={{ fontFamily: "'MapleMono', monospace", fontSize: 11, margin: 0 }}
           >
             {rawExpr}
           </Tag>

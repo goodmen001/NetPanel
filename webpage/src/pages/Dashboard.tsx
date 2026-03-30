@@ -731,7 +731,7 @@ const Dashboard: React.FC = () => {
                             {ipList.slice(0, 3).map((ip, j) => (
                               <Tag key={j} style={{
                                 margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 6px',
-                                borderRadius: 4, fontFamily: 'monospace',
+borderRadius: 4, fontFamily: "'MapleMono', monospace",
                                 background: isDark ? 'rgba(22,119,255,0.1)' : 'rgba(22,119,255,0.06)',
                                 border: '1px solid rgba(22,119,255,0.2)',
                                 color: '#1677ff',

@@ -8,6 +8,7 @@ import {
   CheckCircleOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store/appStore'
 import { systemApi } from '../api'
 import i18n from '../i18n'
@@ -17,7 +18,8 @@ const { Title, Text } = Typography
 
 const Settings: React.FC = () => {
   const { t } = useTranslation()
-  const { language, setLanguage } = useAppStore()
+  const { language, setLanguage, logout } = useAppStore()
+  const navigate = useNavigate()
   const [pwdForm] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [pwdSuccess, setPwdSuccess] = useState(false)
@@ -34,10 +36,14 @@ const Settings: React.FC = () => {
         old_password: values.old_password,
         new_password: values.new_password,
       })
-      message.success(t('settings.passwordChanged'))
+      message.success('密码修改成功，请重新登录')
       pwdForm.resetFields()
       setPwdSuccess(true)
-      setTimeout(() => setPwdSuccess(false), 3000)
+      // 延迟 1.5 秒后退出登录并跳转到登录页
+      setTimeout(() => {
+        logout()
+        navigate('/login')
+      }, 1500)
     } finally {
       setLoading(false)
     }

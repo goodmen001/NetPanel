@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Table, Button, Space, Switch, Modal, Form, Input, Select, Popconfirm, message, Typography, Tag } from 'antd'
+import { Table, Button, Space, Switch, Modal, Form, Input, Select, Popconfirm, message, Typography, Tag, Tooltip } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { accessApi } from '../api'
@@ -13,32 +13,97 @@ const Access: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false)
   const [editRecord, setEditRecord] = useState<any>(null)
   const [form] = Form.useForm()
+  // IPDB 条目和 Caddy 站点列表（从 List 接口获取）
+  const [ipdbEntries, setIpdbEntries] = useState<any[]>([])
+  const [caddySites, setCaddySites] = useState<any[]>([])
 
   const fetchData = async () => {
     setLoading(true)
-    try { const res: any = await accessApi.list(); setData(res.data || []) }
-    finally { setLoading(false) }
+    try {
+      const res: any = await accessApi.list()
+      setData(res.data || [])
+      setIpdbEntries(res.ipdb_entries || [])
+      setCaddySites(res.caddy_sites || [])
+    } finally {
+      setLoading(false)
+    }
   }
   useEffect(() => { fetchData() }, [])
 
+  // 解析 JSON 数组字段为数字数组
+  const parseIds = (val: any): number[] => {
+    if (!val) return []
+    if (Array.isArray(val)) return val
+    try { return JSON.parse(val) } catch { return [] }
+  }
+
   const handleSubmit = async () => {
     const values = await form.validateFields()
-    if (typeof values.ip_list === 'string') values.ip_list = JSON.stringify(values.ip_list.split('\n').filter(Boolean))
+    // 将手动 IP 列表转为 JSON 数组
+    if (typeof values.ip_list === 'string') {
+      values.ip_list = JSON.stringify(values.ip_list.split('\n').filter(Boolean))
+    } else if (!values.ip_list) {
+      values.ip_list = '[]'
+    }
+    // 将 IPDB IDs 和 Site IDs 转为 JSON 数组
+    values.bind_ipdb_ids = JSON.stringify(values.bind_ipdb_ids || [])
+    values.bind_site_ids = JSON.stringify(values.bind_site_ids || [])
+
     editRecord ? await accessApi.update(editRecord.id, values) : await accessApi.create(values)
     message.success(t('common.success'))
     setModalOpen(false)
     fetchData()
   }
 
+  // 根据 IPDB ID 列表获取显示文本
+  const renderIpdbTags = (idsJson: string) => {
+    const ids = parseIds(idsJson)
+    if (ids.length === 0) return '-'
+    return ids.map(id => {
+      const entry = ipdbEntries.find((e: any) => e.id === id)
+      return entry ? (
+        <Tag key={id} color="blue" style={{ marginBottom: 2 }}>
+          <Tooltip title={`${entry.cidr}${entry.location ? ' - ' + entry.location : ''}`}>
+            {entry.cidr}
+          </Tooltip>
+        </Tag>
+      ) : <Tag key={id} color="default">ID:{id}</Tag>
+    })
+  }
+
+  // 根据 Site ID 列表获取显示文本
+  const renderSiteTags = (idsJson: string) => {
+    const ids = parseIds(idsJson)
+    if (ids.length === 0) return <Tag color="purple">{t('access.allSites')}</Tag>
+    return ids.map(id => {
+      const site = caddySites.find((s: any) => s.id === id)
+      return site ? (
+        <Tag key={id} color="cyan" style={{ marginBottom: 2 }}>
+          {site.name || site.domain || `#${id}`}
+        </Tag>
+      ) : <Tag key={id} color="default">ID:{id}</Tag>
+    })
+  }
+
   const columns = [
     { title: t('common.enable'), dataIndex: 'enable', width: 80, render: (v: boolean, r: any) => <Switch size="small" checked={v} onChange={async (c) => { await accessApi.update(r.id, { ...r, enable: c }); fetchData() }} /> },
     { title: t('common.name'), dataIndex: 'name' },
-    { title: t('access.mode'), dataIndex: 'mode', render: (v: string) => <Tag color={v === 'blacklist' ? 'red' : 'green'}>{v === 'blacklist' ? t('access.blacklist') : t('access.whitelist')}</Tag> },
-    { title: t('access.ipList'), dataIndex: 'ip_list', render: (v: string) => { try { const arr = JSON.parse(v); return `${arr.length} 条规则` } catch { return v } } },
+    { title: t('access.mode'), dataIndex: 'mode', width: 100, render: (v: string) => <Tag color={v === 'blacklist' ? 'red' : 'green'}>{v === 'blacklist' ? t('access.blacklist') : t('access.whitelist')}</Tag> },
+    { title: t('access.bindIpdb'), dataIndex: 'bind_ipdb_ids', render: (v: string) => renderIpdbTags(v) },
+    { title: t('access.bindSites'), dataIndex: 'bind_site_ids', render: (v: string) => renderSiteTags(v) },
     { title: t('common.remark'), dataIndex: 'remark', render: (v: string) => v || '-' },
     { title: t('common.action'), width: 120, render: (_: any, r: any) => (
       <Space size={4}>
-        <Button size="small" icon={<EditOutlined />} onClick={() => { setEditRecord(r); form.setFieldsValue({ ...r, ip_list: JSON.parse(r.ip_list || '[]').join('\n') }); setModalOpen(true) }} />
+        <Button size="small" icon={<EditOutlined />} onClick={() => {
+          setEditRecord(r)
+          form.setFieldsValue({
+            ...r,
+            ip_list: (() => { try { return JSON.parse(r.ip_list || '[]').join('\n') } catch { return '' } })(),
+            bind_ipdb_ids: parseIds(r.bind_ipdb_ids),
+            bind_site_ids: parseIds(r.bind_site_ids),
+          })
+          setModalOpen(true)
+        }} />
         <Popconfirm title={t('common.deleteConfirm')} onConfirm={async () => { await accessApi.delete(r.id); fetchData() }}><Button size="small" danger icon={<DeleteOutlined />} /></Popconfirm>
       </Space>
     )},
@@ -48,18 +113,44 @@ const Access: React.FC = () => {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>{t('access.title')}</Typography.Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditRecord(null); form.resetFields(); form.setFieldsValue({ enable: true, mode: 'blacklist' }); setModalOpen(true) }}>{t('common.create')}</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditRecord(null); form.resetFields(); form.setFieldsValue({ enable: true, mode: 'blacklist', bind_ipdb_ids: [], bind_site_ids: [] }); setModalOpen(true) }}>{t('common.create')}</Button>
       </div>
       <Table dataSource={data} columns={columns} rowKey="id" loading={loading} size="middle" style={{ background: '#fff', borderRadius: 8 }} pagination={{ pageSize: 20 }} />
-      <Modal title={editRecord ? t('common.edit') : t('common.create')} open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)} width={480} destroyOnHidden>
+      <Modal title={editRecord ? t('common.edit') : t('common.create')} open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)} width={640} destroyOnHidden>
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label={t('common.name')} rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="enable" label={t('common.enable')} valuePropName="checked"><Switch /></Form.Item>
           <Form.Item name="mode" label={t('access.mode')} rules={[{ required: true }]}>
             <Select><Option value="blacklist">{t('access.blacklist')}</Option><Option value="whitelist">{t('access.whitelist')}</Option></Select>
           </Form.Item>
-          <Form.Item name="ip_list" label={t('access.ipList')} rules={[{ required: true }]}>
-            <Input.TextArea rows={6} placeholder="每行一个IP或CIDR，如：&#10;192.168.1.0/24&#10;10.0.0.1" />
+          <Form.Item name="bind_ipdb_ids" label={t('access.bindIpdb')} extra={t('access.bindIpdbTip')}>
+            <Select
+              mode="multiple"
+              placeholder={t('access.selectIpdb')}
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              options={ipdbEntries.map((e: any) => ({
+                value: e.id,
+                label: `${e.cidr}${e.location ? ' (' + e.location + ')' : ''}${e.tags ? ' [' + e.tags + ']' : ''}`,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item name="bind_site_ids" label={t('access.bindSites')} extra={t('access.bindSitesTip')}>
+            <Select
+              mode="multiple"
+              placeholder={t('access.selectSites')}
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              options={caddySites.map((s: any) => ({
+                value: s.id,
+                label: `${s.name}${s.domain ? ' (' + s.domain + ':' + s.port + ')' : ''}`,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item name="ip_list" label={t('access.ipList')} extra={t('access.ipListTip')}>
+            <Input.TextArea rows={4} placeholder={t('access.ipListPlaceholder')} />
           </Form.Item>
           <Form.Item name="remark" label={t('common.remark')}><Input.TextArea rows={2} /></Form.Item>
         </Form>

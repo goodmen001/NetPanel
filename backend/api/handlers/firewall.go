@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -44,6 +46,7 @@ func (h *FirewallHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "创建失败: " + err.Error()})
 		return
 	}
+	logger.WriteLog("info", "firewall", fmt.Sprintf("创建防火墙规则 [%d] %s %s", rule.ID, rule.Action, rule.Protocol))
 	// 若启用则立即应用
 	if rule.Enable {
 		if err := h.mgr.ApplyRule(&rule); err != nil {
@@ -73,6 +76,7 @@ func (h *FirewallHandler) Update(c *gin.Context) {
 	req.ID = uint(id)
 	req.ApplyStatus = "pending"
 	h.db.Save(&req)
+	logger.WriteLog("info", "firewall", fmt.Sprintf("更新防火墙规则 [%d]", id))
 	// 若启用则重新应用
 	if req.Enable {
 		if err := h.mgr.ApplyRule(&req); err != nil {
@@ -95,6 +99,7 @@ func (h *FirewallHandler) Delete(c *gin.Context) {
 		_ = h.mgr.RemoveRule(&rule)
 	}
 	h.db.Delete(&model.FirewallRule{}, id)
+	logger.WriteLog("info", "firewall", fmt.Sprintf("删除防火墙规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -112,6 +117,7 @@ func (h *FirewallHandler) Apply(c *gin.Context) {
 	}
 	// 同步启用状态
 	h.db.Model(&model.FirewallRule{}).Where("id = ?", id).Update("enable", true)
+	logger.WriteLog("info", "firewall", fmt.Sprintf("应用防火墙规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "规则已应用"})
 }
 
@@ -131,6 +137,7 @@ func (h *FirewallHandler) Remove(c *gin.Context) {
 		"enable":       false,
 		"apply_status": "pending",
 	})
+	logger.WriteLog("info", "firewall", fmt.Sprintf("移除防火墙规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "规则已移除"})
 }
 

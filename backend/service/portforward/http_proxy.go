@@ -15,10 +15,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// HTTPProxy 处理 HTTP / HTTPS / WebSocket 的反向代理
-// - ListenPortType 为 http      → 监听 HTTP，转发到 http://target
-// - ListenPortType 为 https     → 监听 HTTPS（TLS 终止在本地），转发到 http(s)://target
-// - ListenPortType 为 websocket → 同 http，ReverseProxy 自动处理 Upgrade
+// HTTPProxy 处理 HTTP / HTTPS / WS / WSS 的反向代理
+// - ListenPortType 为 http/ws   → 监听 HTTP，转发到 http(s)://target（ReverseProxy 自动处理 WebSocket Upgrade）
+// - ListenPortType 为 https/wss → 监听 HTTPS（TLS 终止在本地），转发到 http(s)://target（ReverseProxy 自动处理 WebSocket Upgrade）
 type HTTPProxy struct {
 	listenIP   string
 	listenPort int

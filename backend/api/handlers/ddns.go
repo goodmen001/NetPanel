@@ -4,8 +4,11 @@ import (
 	"net/http"
 	"strconv"
 
+	"fmt"
+
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -38,6 +41,7 @@ func (h *DDNSHandler) Create(c *gin.Context) {
 	}
 	task.Status = "stopped"
 	h.db.Create(&task)
+logger.WriteLog("info", "ddns", fmt.Sprintf("创建DDNS任务 [%d] %s", task.ID, task.Name))
 	if task.Enable {
 		h.mgr.Start(task.ID)
 	}
@@ -54,6 +58,7 @@ func (h *DDNSHandler) Update(c *gin.Context) {
 	h.mgr.Stop(uint(id))
 	req.ID = uint(id)
 	h.db.Save(&req)
+logger.WriteLog("info", "ddns", fmt.Sprintf("更新DDNS任务 [%d] %s", id, req.Name))
 	if req.Enable {
 		h.mgr.Start(uint(id))
 	}
@@ -64,6 +69,7 @@ func (h *DDNSHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.Stop(uint(id))
 	h.db.Delete(&model.DDNSTask{}, id)
+	logger.WriteLog("info", "ddns", fmt.Sprintf("删除DDNS任务 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -74,6 +80,7 @@ func (h *DDNSHandler) Start(c *gin.Context) {
 		return
 	}
 	h.db.Model(&model.DDNSTask{}).Where("id = ?", id).Update("enable", true)
+	logger.WriteLog("info", "ddns", fmt.Sprintf("启动DDNS任务 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
@@ -81,6 +88,7 @@ func (h *DDNSHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.Stop(uint(id))
 	h.db.Model(&model.DDNSTask{}).Where("id = ?", id).Update("enable", false)
+	logger.WriteLog("info", "ddns", fmt.Sprintf("停止DDNS任务 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 
@@ -90,6 +98,7 @@ func (h *DDNSHandler) RunNow(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	logger.WriteLog("info", "ddns", fmt.Sprintf("手动触发DDNS任务 [%d] 更新", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已触发更新"})
 }
 

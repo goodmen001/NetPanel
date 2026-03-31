@@ -32,6 +32,7 @@ import {
 } from '@ant-design/icons'
 import {useTranslation} from 'react-i18next'
 import {callbackTaskApi, stunApi} from '../api'
+import {useTunnelApi} from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
 
 const {Text} = Typography
@@ -316,6 +317,9 @@ const SectionTitle = ({children}: { children: React.ReactNode }) => (
 
 const Stun: React.FC = () => {
     const {t} = useTranslation()
+    const tunnelCtx = useTunnelApi()
+    const api = tunnelCtx?.api || stunApi
+    const isRemote = tunnelCtx?.isRemoteMode || false
     const [data, setData] = useState<any[]>([])
     const [loading, setLoading] = useState(false)
     const [modalOpen, setModalOpen] = useState(false)
@@ -331,7 +335,7 @@ const Stun: React.FC = () => {
     const fetchData = async () => {
         setLoading(true)
         try {
-            const res: any = await stunApi.list()
+            const res: any = await api.list()
             setData(res.data || [])
         } finally {
             setLoading(false)
@@ -381,18 +385,19 @@ const Stun: React.FC = () => {
     const handleSubmit = async () => {
         const values = await form.validateFields()
         if (editRecord) {
-            await stunApi.update(editRecord.id, values)
+            await api.update(editRecord.id, values)
         } else {
-            await stunApi.create(values)
+            await api.create(values)
         }
         message.success(t('common.success'))
         setModalOpen(false)
         fetchData()
+        tunnelCtx?.onRefresh?.()
     }
 
     const handleToggle = async (record: any, checked: boolean) => {
-        await stunApi.update(record.id, {...record, enable: checked})
-        checked ? await stunApi.start(record.id) : await stunApi.stop(record.id)
+        await api.update(record.id, {...record, enable: checked})
+        checked ? await api.start(record.id) : await api.stop(record.id)
         fetchData()
     }
 
@@ -473,12 +478,12 @@ const Stun: React.FC = () => {
                     {r.status === 'running'
                         ? <Tooltip title={t('common.stop')}><Button size="small" icon={<StopOutlined/>}
                                                                     onClick={async () => {
-                                                                        await stunApi.stop(r.id);
+                                                                        await api.stop(r.id);
                                                                         fetchData()
                                                                     }}/></Tooltip>
                         : <Tooltip title={t('common.start')}><Button size="small" type="primary"
                                                                      icon={<PlayCircleOutlined/>} onClick={async () => {
-                            await stunApi.start(r.id);
+                            await api.start(r.id);
                             fetchData()
                         }}/></Tooltip>
                     }
@@ -492,7 +497,7 @@ const Stun: React.FC = () => {
                         <Button size="small" icon={<EditOutlined/>} onClick={() => handleEdit(r)}/>
                     </Tooltip>
                     <Popconfirm title={t('common.deleteConfirm')} onConfirm={async () => {
-                        await stunApi.delete(r.id);
+                        await api.delete(r.id);
                         fetchData()
                     }}>
                         <Tooltip title={t('common.delete')}>
@@ -751,10 +756,17 @@ const Stun: React.FC = () => {
 
     return (
         <div>
+            {!isRemote && (
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16}}>
                 <Typography.Title level={4} style={{margin: 0}}>{t('stun.title')}</Typography.Title>
                 <Button type="primary" icon={<PlusOutlined/>} onClick={handleCreate}>{t('common.create')}</Button>
             </div>
+            )}
+            {isRemote && (
+            <div style={{display: 'flex', justifyContent: 'flex-end', marginBottom: 12}}>
+                <Button type="primary" icon={<PlusOutlined/>} onClick={handleCreate}>{t('common.create')}</Button>
+            </div>
+            )}
 
             <Table
                 dataSource={data} columns={columns} rowKey="id" loading={loading}

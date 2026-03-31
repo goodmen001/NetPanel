@@ -7,10 +7,10 @@ import {
 import {
   PlusOutlined, EditOutlined, DeleteOutlined,
   PlayCircleOutlined, StopOutlined, SyncOutlined, GlobalOutlined,
-  HistoryOutlined,
+  HistoryOutlined, FileTextOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
-import { ddnsApi, domainAccountApi } from '../api'
+import { ddnsApi, domainAccountApi, adminApi } from '../api'
 import StatusTag from '../components/StatusTag'
 import dayjs from 'dayjs'
 
@@ -42,6 +42,14 @@ const Ddns: React.FC = () => {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyData, setHistoryData] = useState<any[]>([])
   const [historyRecord, setHistoryRecord] = useState<any>(null)
+
+  // 执行日志
+  const [logsOpen, setLogsOpen] = useState(false)
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [logsData, setLogsData] = useState<any[]>([])
+  const [logsTotal, setLogsTotal] = useState(0)
+  const [logsRecord, setLogsRecord] = useState<any>(null)
+  const [logsPage, setLogsPage] = useState(1)
 
   const fetchData = async () => {
     setLoading(true)
@@ -112,6 +120,45 @@ const Ddns: React.FC = () => {
       setHistoryLoading(false)
     }
   }
+
+  const handleViewLogs = async (record: any, page = 1) => {
+    setLogsRecord(record)
+    setLogsOpen(true)
+    setLogsLoading(true)
+    setLogsPage(page)
+    try {
+      const res: any = await adminApi.queryLogs({
+        service: 'ddns',
+        keyword: `[${record.id}]`,
+        page,
+        page_size: 20,
+        order: 'desc',
+      })
+      setLogsData(res.data?.items || [])
+      setLogsTotal(res.data?.total || 0)
+    } finally {
+      setLogsLoading(false)
+    }
+  }
+
+  const LEVEL_COLORS: Record<string, string> = {
+    info: 'blue', warning: 'orange', warn: 'orange', error: 'red', debug: 'default',
+  }
+
+  const logsColumns = [
+    {
+      title: t('ddns.logTime'), dataIndex: 'log_time', width: 160,
+      render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm:ss'),
+    },
+    {
+      title: t('ddns.logLevel'), dataIndex: 'level', width: 80,
+      render: (v: string) => <Tag color={LEVEL_COLORS[v] || 'default'}>{v?.toUpperCase()}</Tag>,
+    },
+    {
+      title: t('ddns.logMessage'), dataIndex: 'message',
+      render: (v: string) => <Text style={{ fontSize: 12, wordBreak: 'break-all' }}>{v}</Text>,
+    },
+  ]
 
   const historyColumns = [
     {
@@ -197,6 +244,9 @@ const Ddns: React.FC = () => {
           }
           <Tooltip title={t('ddns.runNow')}>
             <Button size="small" icon={<SyncOutlined />} onClick={async () => { await ddnsApi.runNow(r.id); message.success('已触发更新') }} />
+          </Tooltip>
+          <Tooltip title={t('ddns.viewLogs')}>
+            <Button size="small" icon={<FileTextOutlined />} onClick={() => handleViewLogs(r)} />
           </Tooltip>
           <Tooltip title={t('ddns.viewHistory')}>
             <Button size="small" icon={<HistoryOutlined />} onClick={() => handleViewHistory(r)} />
@@ -391,6 +441,39 @@ const Ddns: React.FC = () => {
             },
           ]} />
         </Form>
+      </Modal>
+
+      {/* 执行日志弹窗 */}
+      <Modal
+        title={
+          <Space>
+            <FileTextOutlined />
+            <span>{t('ddns.viewLogs')}</span>
+            {logsRecord && <Tag color="blue">{logsRecord.name}</Tag>}
+          </Space>
+        }
+        open={logsOpen}
+        onCancel={() => setLogsOpen(false)}
+        footer={null}
+        width={900}
+        destroyOnHidden
+      >
+        <Table
+          dataSource={logsData}
+          columns={logsColumns}
+          rowKey="id"
+          loading={logsLoading}
+          size="small"
+          pagination={{
+            current: logsPage,
+            total: logsTotal,
+            pageSize: 20,
+            showSizeChanger: false,
+            showTotal: (total) => `共 ${total} 条`,
+            onChange: (p) => logsRecord && handleViewLogs(logsRecord, p),
+          }}
+          locale={{ emptyText: t('ddns.noLogs') }}
+        />
       </Modal>
 
       {/* 历史记录弹窗 */}

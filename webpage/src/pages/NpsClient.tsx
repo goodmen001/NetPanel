@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { npsClientApi } from '../api'
+import { useTunnelApi } from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
 
 const { Text } = Typography
@@ -25,6 +26,9 @@ const SectionTitle = ({ children }: { children: React.ReactNode }) => (
 )
 
 const NpsClient: React.FC = () => {
+  const tunnelCtx = useTunnelApi()
+  const api = tunnelCtx?.api || npsClientApi
+  const isRemote = tunnelCtx?.isRemoteMode || false
   const { t } = useTranslation()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -35,7 +39,7 @@ const NpsClient: React.FC = () => {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const res: any = await npsClientApi.list()
+      const res: any = await api.list()
       setData(res.data || [])
     } finally { setLoading(false) }
   }
@@ -69,18 +73,19 @@ const NpsClient: React.FC = () => {
   const handleSubmit = async () => {
     const values = await form.validateFields()
     if (editRecord) {
-      await npsClientApi.update(editRecord.id, values)
+      await api.update(editRecord.id, values)
     } else {
-      await npsClientApi.create(values)
+      await api.create(values)
     }
     message.success(t('common.success'))
     setModalOpen(false)
     fetchData()
+    tunnelCtx?.onRefresh?.()
   }
 
   const handleToggle = async (record: any, checked: boolean) => {
-    await npsClientApi.update(record.id, { ...record, enable: checked })
-    checked ? await npsClientApi.start(record.id) : await npsClientApi.stop(record.id)
+    await api.update(record.id, { ...record, enable: checked })
+    checked ? await api.start(record.id) : await api.stop(record.id)
     fetchData()
   }
 
@@ -136,13 +141,13 @@ const NpsClient: React.FC = () => {
       render: (_: any, r: any) => (
         <Space size={4}>
           {r.status === 'running'
-            ? <Tooltip title={t('common.stop')}><Button size="small" icon={<StopOutlined />} onClick={async () => { await npsClientApi.stop(r.id); fetchData() }} /></Tooltip>
-            : <Tooltip title={t('common.start')}><Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={async () => { await npsClientApi.start(r.id); fetchData() }} /></Tooltip>
+            ? <Tooltip title={t('common.stop')}><Button size="small" icon={<StopOutlined />} onClick={async () => { await api.stop(r.id); fetchData() }} /></Tooltip>
+            : <Tooltip title={t('common.start')}><Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={async () => { await api.start(r.id); fetchData() }} /></Tooltip>
           }
           <Tooltip title={t('common.edit')}>
             <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)} />
           </Tooltip>
-          <Popconfirm title={t('common.deleteConfirm')} onConfirm={async () => { await npsClientApi.delete(r.id); fetchData() }}>
+          <Popconfirm title={t('common.deleteConfirm')} onConfirm={async () => { await api.delete(r.id); fetchData() }}>
             <Tooltip title={t('common.delete')}>
               <Button size="small" danger icon={<DeleteOutlined />} />
             </Tooltip>
@@ -407,10 +412,17 @@ const NpsClient: React.FC = () => {
 
   return (
     <div>
+      {!isRemote && (
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>{t('nps.clientTitle')}</Typography.Title>
         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
       </div>
+      )}
+      {isRemote && (
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
+      </div>
+      )}
 
       <Table
         dataSource={data} columns={columns} rowKey="id" loading={loading}

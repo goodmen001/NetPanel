@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Table, Button, Space, Switch, Modal, Form, Input, InputNumber, Select, Popconfirm, message, Typography, Tag, Row, Col } from 'antd'
+import { Table, Button, Space, Switch, Modal, Form, Input, InputNumber, Select, Popconfirm, message, Typography, Tag, Row, Col, Alert } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { storageApi } from '../api'
@@ -59,7 +59,13 @@ const Storage: React.FC = () => {
           <Form.Item name="name" label={t('common.name')} rules={[{ required: true }]}><Input style={{ width: '100%' }} /></Form.Item>
           <Form.Item name="enable" label={t('common.enable')} valuePropName="checked"><Switch /></Form.Item>
           <Form.Item name="protocol" label={t('storage.protocol')} rules={[{ required: true }]}>
-            <Select style={{ width: '100%' }}><Option value="webdav">WebDAV</Option><Option value="sftp">SFTP</Option><Option value="smb">SMB</Option></Select>
+            <Select style={{ width: '100%' }} onChange={(v: string) => {
+              const portMap: Record<string, number> = { webdav: 8888, sftp: 2222, smb: 445 }
+              if (portMap[v]) form.setFieldValue('listen_port', portMap[v])
+            }}><Option value="webdav">WebDAV</Option><Option value="sftp">SFTP</Option><Option value="smb">SMB</Option></Select>
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev: any, cur: any) => prev.protocol !== cur.protocol}>
+            {() => form.getFieldValue('protocol') === 'smb' ? <Alert type="info" showIcon message={t('storage.smbHint')} style={{ marginBottom: 16 }} /> : null}
           </Form.Item>
           <Row gutter={16}>
             <Col span={16}>

@@ -425,12 +425,21 @@ const DomainAccount: React.FC = () => {
                     <Input.Password placeholder={currentMode.secretPlaceholder} />
                   </Form.Item>
 
-                  {/* Cloudflare API Token 提示 */}
+                  {/* Cloudflare 认证方式提示 */}
                   {provider === 'cloudflare' && authType === 'api_token' && (
                     <Alert
                       type="info"
                       showIcon
                       message="在 Cloudflare 控制台 → My Profile → API Tokens → Create Token 创建，建议授予 Zone:DNS:Edit 权限"
+                      style={{ marginBottom: 16 }}
+                    />
+                  )}
+                  {provider === 'cloudflare' && authType === 'api_key' && (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      message="推荐使用 API Token 认证方式"
+                      description="Global API Key 拥有账号全部权限，安全性较低。建议切换到 API Token 方式，可精细控制权限范围，更加安全。"
                       style={{ marginBottom: 16 }}
                     />
                   )}

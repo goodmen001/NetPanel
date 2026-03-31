@@ -360,37 +360,60 @@ func (m *Manager) Start(id uint) error {
 
 	entry := &ruleEntry{}
 
-	// 根据 ListenPortType 决定使用哪种代理
-	var p Proxy
-	switch strings.ToLower(rule.ListenPortType) {
-	case "udp":
-		p = newUDPProxy(rule.ListenIP, rule.TargetAddress, rule.ListenPort, rule.TargetPort, m.log)
-	case "http", "websocket":
-		// HTTP 和 WebSocket 统一用反向代理，ReverseProxy 自动处理 Upgrade
-		p = newHTTPProxy(rule.ListenIP, rule.TargetAddress, rule.ListenPort, rule.TargetPort, "http", "", "", m.log)
-	case "https":
-		// HTTPS：本地监听端口做 TLS 终止，转发到目标
-		// 默认转发到 http://，如果目标端口类型也是 https 则转发到 https://
-		targetScheme := "http"
-		if strings.ToLower(rule.TargetPortType) == "https" {
-			targetScheme = "https"
+	// 根据 ListenPortType 和 TargetPortType 决定使用哪种代理
+	listenType := strings.ToLower(rule.ListenPortType)
+	targetType := strings.ToLower(rule.TargetPortType)
+
+	// resolveTargetScheme 根据目标端口类型确定转发到目标时使用的 scheme
+	resolveTargetScheme := func() string {
+		switch targetType {
+		case "https", "wss":
+			return "https"
+		default:
+			return "http"
 		}
-		var certFile, keyFile string
+	}
+
+	// loadCert 加载 HTTPS/WSS 监听所需的 TLS 证书
+	loadCert := func() (certFile, keyFile string, err error) {
 		if rule.DomainCertID > 0 {
 			var dc model.DomainCert
 			if err := m.db.First(&dc, rule.DomainCertID).Error; err != nil {
-				return fmt.Errorf("HTTPS 监听要求证书 ID=%d，但查询失败: %w", rule.DomainCertID, err)
+				return "", "", fmt.Errorf("TLS 监听要求证书 ID=%d，但查询失败: %w", rule.DomainCertID, err)
 			}
 			if dc.CertFile == "" || dc.KeyFile == "" {
-				return fmt.Errorf("HTTPS 监听要求证书 ID=%d，但证书文件路径为空（证书可能尚未签发）", rule.DomainCertID)
+				return "", "", fmt.Errorf("TLS 监听要求证书 ID=%d，但证书文件路径为空（证书可能尚未签发）", rule.DomainCertID)
 			}
-			certFile = dc.CertFile
-			keyFile = dc.KeyFile
+			return dc.CertFile, dc.KeyFile, nil
+		}
+		return "", "", nil
+	}
+
+	var p Proxy
+	switch listenType {
+	case "udp":
+		p = newUDPProxy(rule.ListenIP, rule.TargetAddress, rule.ListenPort, rule.TargetPort, m.log)
+
+	case "http", "ws":
+		// HTTP / WS 监听：以 HTTP 方式监听，ReverseProxy 自动处理 WebSocket Upgrade
+		// 根据目标端口类型决定转发到 http:// 还是 https://
+		targetScheme := resolveTargetScheme()
+		p = newHTTPProxy(rule.ListenIP, rule.TargetAddress, rule.ListenPort, rule.TargetPort, targetScheme, "", "", m.log)
+
+	case "https", "wss":
+		// HTTPS / WSS 监听：本地做 TLS 终止，ReverseProxy 自动处理 WebSocket Upgrade
+		// 根据目标端口类型决定转发到 http:// 还是 https://
+		targetScheme := resolveTargetScheme()
+		certFile, keyFile, err := loadCert()
+		if err != nil {
+			return err
 		}
 		p = newHTTPProxy(rule.ListenIP, rule.TargetAddress, rule.ListenPort, rule.TargetPort, targetScheme, certFile, keyFile, m.log)
+
 	case "socks", "socks5":
 		// SOCKS5 代理服务器：本地监听端口作为 SOCKS5 入口
 		p = newSOCKS5Proxy(rule.ListenIP, rule.ListenPort, rule.MaxConnections, m.log)
+
 	default:
 		// tcp 及其他未知类型均走透明 TCP 转发
 		p = newTCPProxy(rule.ListenIP, rule.TargetAddress, rule.ListenPort, rule.TargetPort, rule.MaxConnections, m.log)

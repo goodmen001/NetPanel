@@ -30,10 +30,10 @@ type PortForwardRule struct {
 	Protocol      string `gorm:"size:20;default:'tcp'" json:"protocol"` // tcp/udp/tcp+udp
 	ListenIP       string `gorm:"size:100;default:'0.0.0.0'" json:"listen_ip"`
 	ListenPort     int    `gorm:"not null" json:"listen_port"`
-	ListenPortType string `gorm:"size:20;default:'tcp'" json:"listen_port_type"` // tcp/udp/http/https/socks/websocket
+	ListenPortType string `gorm:"size:20;default:'tcp'" json:"listen_port_type"` // tcp/udp/http/https/socks/ws/wss
 	TargetAddress  string `gorm:"size:255;not null" json:"target_address"`       // IP或域名（单目标，兼容旧版）
 	TargetPort     int    `gorm:"not null" json:"target_port"`
-	TargetPortType string `gorm:"size:20;default:'tcp'" json:"target_port_type"` // tcp/udp/http/https/socks/websocket
+	TargetPortType string `gorm:"size:20;default:'tcp'" json:"target_port_type"` // tcp/udp/http/https/socks/ws/wss
 	// 多目标地址（负载均衡），JSON数组，格式：["ip1:port1","ip2:port2"]
 	// 若设置此字段则忽略 TargetAddress/TargetPort（参考 lucky PortForwardsRule 多目标）
 	TargetAddresses string `gorm:"type:text" json:"target_addresses"`
@@ -803,11 +803,12 @@ type CronTask struct {
 	Name         string     `gorm:"size:100;not null" json:"name"`
 	Enable       bool       `gorm:"default:false" json:"enable"`
 	CronExpr     string     `gorm:"size:100;not null" json:"cron_expr"`
-	TaskType     string     `gorm:"size:20;default:'shell'" json:"task_type"` // shell/http/internal
+	TaskType     string     `gorm:"size:20;default:'shell'" json:"task_type"` // shell/http/renew_cert/update_ddns/wol
 	Command      string     `gorm:"type:text" json:"command"`
 	HTTPURL      string     `gorm:"size:500" json:"http_url"`
 	HTTPMethod   string     `gorm:"size:10;default:'GET'" json:"http_method"`
 	HTTPBody     string     `gorm:"type:text" json:"http_body"`
+	TargetID     uint       `gorm:"default:0" json:"target_id"` // 关联目标 ID（证书/DDNS/WOL 设备）
 	LastRunTime  *time.Time `json:"last_run_time"`
 	LastRunResult string    `gorm:"type:text" json:"last_run_result"`
 	Status       string     `gorm:"size:20;default:'stopped'" json:"status"`
@@ -866,11 +867,13 @@ type IPDBSubscription struct {
 // AccessRule 访问控制规则
 type AccessRule struct {
 	BaseModel
-	Name    string `gorm:"size:100;not null" json:"name"`
-	Enable  bool   `gorm:"default:false" json:"enable"`
-	Mode    string `gorm:"size:20;default:'blacklist'" json:"mode"` // blacklist/whitelist
-	IPList  string `gorm:"type:text" json:"ip_list"`                // JSON 数组，支持 CIDR
-	Remark  string `gorm:"size:500" json:"remark"`
+	Name        string `gorm:"size:100;not null" json:"name"`
+	Enable      bool   `gorm:"default:false" json:"enable"`
+	Mode        string `gorm:"size:20;default:'blacklist'" json:"mode"` // blacklist/whitelist
+	IPList      string `gorm:"type:text" json:"ip_list"`                // JSON 数组，支持 CIDR（手动输入）
+	BindIPDBIDs string `gorm:"type:text" json:"bind_ipdb_ids"`          // JSON 数组，绑定 IP 地址库条目 ID 列表
+	BindSiteIDs string `gorm:"type:text" json:"bind_site_ids"`          // JSON 数组，绑定网站服务（CaddySite）ID 列表
+	Remark      string `gorm:"size:500" json:"remark"`
 }
 
 // ===== WAF 防火墙 =====
@@ -995,4 +998,71 @@ type User struct {
 	Enable   bool   `gorm:"default:true" json:"enable"`
 	IsAdmin  bool   `gorm:"default:false" json:"is_admin"`
 	Remark   string `gorm:"size:500" json:"remark"`
+}
+
+// ===== WireGuard 管理 =====
+
+// WireguardConfig WireGuard 接口配置
+type WireguardConfig struct {
+	BaseModel
+	Name       string `gorm:"size:100;not null" json:"name"`
+	Enable     bool   `gorm:"default:false" json:"enable"`
+	PrivateKey string `gorm:"size:255" json:"private_key"` // 本节点私钥（Base64）
+	PublicKey  string `gorm:"size:255" json:"public_key"`  // 本节点公钥（自动生成，只读）
+	ListenPort int    `gorm:"default:51820" json:"listen_port"`
+	Address    string `gorm:"size:255" json:"address"`  // 接口地址，如 10.0.0.1/24
+	DNS        string `gorm:"size:500" json:"dns"`      // DNS 服务器，逗号分隔
+	MTU        int    `gorm:"default:1420" json:"mtu"`   // MTU 值
+	Table      string `gorm:"size:50" json:"table"`      // 路由表，如 auto、off 或具体表号
+	PreUp      string `gorm:"type:text" json:"pre_up"`   // 启动前执行的命令
+	PostUp     string `gorm:"type:text" json:"post_up"`  // 启动后执行的命令
+	PreDown    string `gorm:"type:text" json:"pre_down"` // 停止前执行的命令
+	PostDown   string `gorm:"type:text" json:"post_down"` // 停止后执行的命令
+	Status     string `gorm:"size:20;default:'stopped'" json:"status"`
+	LastError  string `gorm:"type:text" json:"last_error"`
+	Remark     string `gorm:"size:500" json:"remark"`
+}
+
+// WireguardPeer WireGuard 对等节点
+type WireguardPeer struct {
+	BaseModel
+	WireguardID       uint   `gorm:"not null;index" json:"wireguard_id"` // 关联的 WireGuard 接口 ID
+	Name              string `gorm:"size:100" json:"name"`               // 对等节点名称
+	PublicKey         string `gorm:"size:255;not null" json:"public_key"` // 对等节点公钥
+	PresharedKey      string `gorm:"size:255" json:"preshared_key"`       // 预共享密钥（可选）
+	Endpoint          string `gorm:"size:255" json:"endpoint"`            // 对端地址，如 1.2.3.4:51820
+	AllowedIPs        string `gorm:"size:500;not null" json:"allowed_ips"` // 允许的 IP 段，逗号分隔，如 10.0.0.2/32,192.168.1.0/24
+	PersistentKeepalive int  `gorm:"default:0" json:"persistent_keepalive"` // 持久保活间隔（秒），0 表示禁用
+	Enable            bool   `gorm:"default:true" json:"enable"`
+	Remark            string `gorm:"size:500" json:"remark"`
+}
+
+// ===== 组网节点管理 =====
+
+// MeshNode 组网节点
+type MeshNode struct {
+	BaseModel
+	Name          string `gorm:"size:100;not null" json:"name"`           // 节点名称
+	URL           string `gorm:"size:500;not null" json:"url"`            // 节点URL（如 http://192.168.1.100:8080）
+	AdminUser     string `gorm:"size:100" json:"admin_user"`             // 管理员用户名
+	AdminPassword string `gorm:"size:255" json:"admin_password"`         // 管理员密码
+	Enable        bool   `gorm:"default:true" json:"enable"`             // 是否启用
+	Remark        string `gorm:"size:500" json:"remark"`                 // 节点备注
+	NodeIP        string `gorm:"size:100" json:"node_ip"`                // 节点IP（只读，从URL解析或心跳获取）
+	IsOnline      bool   `gorm:"default:false" json:"is_online"`         // 节点是否在线（只读，心跳检测）
+	LastHeartbeat *time.Time `json:"last_heartbeat"`                     // 最后心跳时间
+	// Latency 当前节点到此节点的延迟（毫秒），-1 表示不可达
+	Latency       int    `gorm:"default:-1" json:"latency"`
+	// PeerLatencies 节点之间连通性（JSON字典），格式：{"node_id": latency_ms}，-1 表示不可达
+	PeerLatencies string `gorm:"type:text" json:"peer_latencies"`
+}
+
+// MeshNodeEvent 组网节点事件
+type MeshNodeEvent struct {
+	ID        uint      `gorm:"primarykey" json:"id"`
+	NodeID    uint      `gorm:"index" json:"node_id"`                   // 关联节点ID（0表示系统事件）
+	NodeName  string    `gorm:"size:100" json:"node_name"`              // 节点名称（冗余，方便查询）
+	EventType string   `gorm:"size:50;index" json:"event_type"`        // online/offline/created/updated/deleted
+	Message   string   `gorm:"type:text" json:"message"`               // 事件描述
+	EventTime time.Time `gorm:"index" json:"event_time"`               // 事件时间
 }

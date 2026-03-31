@@ -24,6 +24,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/config"
+	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/access"
 	"github.com/netpanel/netpanel/service/callback"
 	"github.com/sirupsen/logrus"
@@ -89,12 +90,32 @@ type cfProvider struct {
 func (p *cfProvider) cfHeaders() map[string]string {
 	h := map[string]string{"Content-Type": "application/json"}
 	if p.apiToken != "" {
-		h["Authorization"] = "Bearer " + p.apiToken
+		h["Authorization"] = "Bearer " + strings.TrimSpace(p.apiToken)
 	} else {
-		h["X-Auth-Email"] = p.email
-		h["X-Auth-Key"] = p.apiKey
+		key := strings.TrimSpace(p.apiKey)
+		// Global API Key 是纯十六进制字符串（通常37位），
+		// 如果不符合该格式，说明用户可能误填了 API Token，自动回退为 Bearer 认证
+		if !isHexString(key) {
+			h["Authorization"] = "Bearer " + key
+		} else {
+			h["X-Auth-Email"] = strings.TrimSpace(p.email)
+			h["X-Auth-Key"] = key
+		}
 	}
 	return h
+}
+
+// isHexString 检查字符串是否为纯十六进制字符（a-f, 0-9）
+func isHexString(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 func (p *cfProvider) cfGet(path string) ([]byte, error) {
@@ -519,6 +540,7 @@ func (h *WolHandler) Create(c *gin.Context) {
 		return
 	}
 	h.db.Create(&device)
+	logger.WriteLog("info", "wol", fmt.Sprintf("创建WOL设备 [%d] %s", device.ID, device.MACAddress))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": device, "message": "创建成功"})
 }
 
@@ -531,12 +553,14 @@ func (h *WolHandler) Update(c *gin.Context) {
 	}
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "wol", fmt.Sprintf("更新WOL设备 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
 func (h *WolHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.db.Delete(&model.WolDevice{}, id)
+	logger.WriteLog("info", "wol", fmt.Sprintf("删除WOL设备 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -551,6 +575,7 @@ func (h *WolHandler) Wake(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "唤醒失败: " + err.Error()})
 		return
 	}
+	logger.WriteLog("info", "wol", fmt.Sprintf("唤醒WOL设备 [%d] MAC=%s", id, device.MACAddress))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "唤醒包已发送"})
 }
 
@@ -584,6 +609,7 @@ func (h *DomainAccountHandler) Create(c *gin.Context) {
 		return
 	}
 	h.db.Create(&account)
+	logger.WriteLog("info", "domain", fmt.Sprintf("创建域名账号 [%d] %s", account.ID, account.Name))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": account, "message": "创建成功"})
 }
 
@@ -605,6 +631,7 @@ func (h *DomainAccountHandler) Update(c *gin.Context) {
 		req.AccessSecret = existing.AccessSecret
 	}
 	h.db.Save(&req)
+	logger.WriteLog("info", "domain", fmt.Sprintf("更新域名账号 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
@@ -618,6 +645,7 @@ func (h *DomainAccountHandler) Delete(c *gin.Context) {
 		return
 	}
 	h.db.Delete(&model.DomainAccount{}, id)
+	logger.WriteLog("info", "domain", fmt.Sprintf("删除域名账号 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -857,6 +885,7 @@ func (h *DomainInfoHandler) Create(c *gin.Context) {
 		return
 	}
 	h.db.Create(&domain)
+	logger.WriteLog("info", "domain", fmt.Sprintf("添加域名 [%d] %s", domain.ID, domain.Name))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": domain, "message": "添加域名成功"})
 }
 
@@ -875,6 +904,7 @@ func (h *DomainInfoHandler) Update(c *gin.Context) {
 	}
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "domain", fmt.Sprintf("更新域名 [%d] %s", id, req.Name))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
@@ -889,6 +919,7 @@ func (h *DomainInfoHandler) Delete(c *gin.Context) {
 	// 同时删除关联的解析记录
 	h.db.Where("domain_info_id = ?", id).Delete(&model.DomainRecord{})
 	h.db.Delete(&model.DomainInfo{}, id)
+	logger.WriteLog("info", "domain", fmt.Sprintf("删除域名 [%d] %s", id, domain.Name))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -1008,6 +1039,7 @@ func (h *DomainInfoHandler) UpdateAutoSync(c *gin.Context) {
 	} else {
 		cancelAutoSync(uint(id))
 	}
+	logger.WriteLog("info", "domain", fmt.Sprintf("更新域名自动同步配置 [%d] auto_sync=%v interval=%d", id, req.AutoSync, req.SyncInterval))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "自动同步配置已更新"})
 }
 
@@ -1046,6 +1078,7 @@ func (h *CertAccountHandler) Create(c *gin.Context) {
 		return
 	}
 	h.db.Create(&account)
+	logger.WriteLog("info", "cert", fmt.Sprintf("创建证书账号 [%d] %s", account.ID, account.Email))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": account, "message": "创建成功"})
 }
 
@@ -1058,12 +1091,14 @@ func (h *CertAccountHandler) Update(c *gin.Context) {
 	}
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "cert", fmt.Sprintf("更新证书账号 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
 func (h *CertAccountHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.db.Delete(&model.CertAccount{}, id)
+	logger.WriteLog("info", "cert", fmt.Sprintf("删除证书账号 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -1105,6 +1140,7 @@ func (h *CertHandler) Create(c *gin.Context) {
 	}
 	cert.Status = "pending"
 	h.db.Create(&cert)
+	logger.WriteLog("info", "cert", fmt.Sprintf("创建域名证书 [%d]", cert.ID))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": cert, "message": "创建成功"})
 }
 
@@ -1117,12 +1153,14 @@ func (h *CertHandler) Update(c *gin.Context) {
 	}
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "cert", fmt.Sprintf("更新域名证书 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
 func (h *CertHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.db.Delete(&model.DomainCert{}, id)
+	logger.WriteLog("info", "cert", fmt.Sprintf("删除域名证书 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -1130,6 +1168,7 @@ func (h *CertHandler) Renew(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	// TODO: 实现 ACME 证书续期
 	h.log.Infof("触发证书续期: %d", id)
+	logger.WriteLog("info", "cert", fmt.Sprintf("触发证书续期 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "证书续期任务已提交"})
 }
 
@@ -1173,6 +1212,7 @@ func (h *DomainRecordHandler) Create(c *gin.Context) {
 		}
 	}
 	h.db.Create(&record)
+	logger.WriteLog("info", "domain", fmt.Sprintf("创建解析记录 [%d] %s %s", record.ID, record.RecordType, record.Host))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": record, "message": "创建成功"})
 }
 
@@ -1185,12 +1225,14 @@ func (h *DomainRecordHandler) Update(c *gin.Context) {
 	}
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "domain", fmt.Sprintf("更新解析记录 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
 func (h *DomainRecordHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.db.Delete(&model.DomainRecord{}, id)
+	logger.WriteLog("info", "domain", fmt.Sprintf("删除解析记录 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -1265,6 +1307,7 @@ func (h *IPDBHandler) Create(c *gin.Context) {
 		return
 	}
 	h.db.Create(&entry)
+	logger.WriteLog("info", "ipdb", fmt.Sprintf("创建IP地址库条目 [%d] %s", entry.ID, entry.CIDR))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": entry, "message": "创建成功"})
 }
 
@@ -1277,12 +1320,14 @@ func (h *IPDBHandler) Update(c *gin.Context) {
 	}
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "ipdb", fmt.Sprintf("更新IP地址库条目 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
 func (h *IPDBHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.db.Delete(&model.IPDBEntry{}, id)
+	logger.WriteLog("info", "ipdb", fmt.Sprintf("删除IP地址库条目 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -1423,6 +1468,7 @@ func (h *IPDBHandler) Import(c *gin.Context) {
 	}
 
 	imported := h.upsertEntries(entries)
+	logger.WriteLog("info", "ipdb", fmt.Sprintf("批量导入IP地址库 共%d条", imported))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "导入成功", "data": gin.H{"count": imported}})
 }
 
@@ -1478,6 +1524,7 @@ func (h *IPDBHandler) ImportFromURL(c *gin.Context) {
 	}
 
 	imported := h.upsertEntries(entries)
+	logger.WriteLog("info", "ipdb", fmt.Sprintf("从URL导入IP地址库 共%d条 url=%s", imported, req.URL))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "导入成功", "data": gin.H{
 		"count": imported,
 		"url":   req.URL,
@@ -1501,6 +1548,7 @@ func (h *IPDBHandler) CreateSubscription(c *gin.Context) {
 		return
 	}
 	h.db.Create(&sub)
+	logger.WriteLog("info", "ipdb", fmt.Sprintf("创建IP地址库订阅 [%d] %s", sub.ID, sub.URL))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": sub, "message": "创建成功"})
 }
 
@@ -1514,6 +1562,7 @@ func (h *IPDBHandler) UpdateSubscription(c *gin.Context) {
 	}
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "ipdb", fmt.Sprintf("更新IP地址库订阅 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
@@ -1521,6 +1570,7 @@ func (h *IPDBHandler) UpdateSubscription(c *gin.Context) {
 func (h *IPDBHandler) DeleteSubscription(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.db.Delete(&model.IPDBSubscription{}, id)
+	logger.WriteLog("info", "ipdb", fmt.Sprintf("删除IP地址库订阅 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -1562,6 +1612,7 @@ func (h *IPDBHandler) RefreshSubscription(c *gin.Context) {
 	sub.LastSyncError = ""
 	h.db.Save(&sub)
 
+	logger.WriteLog("info", "ipdb", fmt.Sprintf("刷新IP地址库订阅 [%d] 共%d条", id, imported))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "刷新成功", "data": gin.H{"count": imported}})
 }
 
@@ -1628,7 +1679,20 @@ func NewAccessHandler(db *gorm.DB, log *logrus.Logger, mgr *access.Manager) *Acc
 func (h *AccessHandler) List(c *gin.Context) {
 	var rules []model.AccessRule
 	h.db.Order("id desc").Find(&rules)
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": rules})
+
+	// 查询所有 IPDB 条目和 Caddy 站点，供前端选择
+	var ipdbEntries []model.IPDBEntry
+	h.db.Select("id, cidr, location, tags").Order("id desc").Find(&ipdbEntries)
+
+	var caddySites []model.CaddySite
+	h.db.Select("id, name, domain, port, site_type").Order("id desc").Find(&caddySites)
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"data": rules,
+		"ipdb_entries": ipdbEntries,
+		"caddy_sites":  caddySites,
+	})
 }
 
 func (h *AccessHandler) Create(c *gin.Context) {
@@ -1639,6 +1703,7 @@ func (h *AccessHandler) Create(c *gin.Context) {
 	}
 	h.db.Create(&rule)
 	h.mgr.Reload()
+	logger.WriteLog("info", "access", fmt.Sprintf("创建访问控制规则 [%d]", rule.ID))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": rule, "message": "创建成功"})
 }
 
@@ -1652,6 +1717,7 @@ func (h *AccessHandler) Update(c *gin.Context) {
 	req.ID = uint(id)
 	h.db.Save(&req)
 	h.mgr.Reload()
+	logger.WriteLog("info", "access", fmt.Sprintf("更新访问控制规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
@@ -1659,6 +1725,7 @@ func (h *AccessHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.db.Delete(&model.AccessRule{}, id)
 	h.mgr.Reload()
+	logger.WriteLog("info", "access", fmt.Sprintf("删除访问控制规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -1687,6 +1754,7 @@ func (h *CallbackAccountHandler) Create(c *gin.Context) {
 		return
 	}
 	h.db.Create(&account)
+	logger.WriteLog("info", "callback", fmt.Sprintf("创建回调账号 [%d]", account.ID))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": account, "message": "创建成功"})
 }
 
@@ -1699,12 +1767,14 @@ func (h *CallbackAccountHandler) Update(c *gin.Context) {
 	}
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "callback", fmt.Sprintf("更新回调账号 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
 func (h *CallbackAccountHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.db.Delete(&model.CallbackAccount{}, id)
+	logger.WriteLog("info", "callback", fmt.Sprintf("删除回调账号 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -1741,6 +1811,7 @@ func (h *CallbackTaskHandler) Create(c *gin.Context) {
 		return
 	}
 	h.db.Create(&task)
+	logger.WriteLog("info", "callback", fmt.Sprintf("创建回调任务 [%d]", task.ID))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": task, "message": "创建成功"})
 }
 
@@ -1753,11 +1824,13 @@ func (h *CallbackTaskHandler) Update(c *gin.Context) {
 	}
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "callback", fmt.Sprintf("更新回调任务 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
 func (h *CallbackTaskHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.db.Delete(&model.CallbackTask{}, id)
+	logger.WriteLog("info", "callback", fmt.Sprintf("删除回调任务 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }

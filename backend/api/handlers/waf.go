@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -35,6 +37,7 @@ func (h *WafHandler) Create(c *gin.Context) {
 	}
 	cfg.Status = "stopped"
 	h.db.Create(&cfg)
+	logger.WriteLog("info", "waf", fmt.Sprintf("创建WAF配置 [%d] %s", cfg.ID, cfg.Name))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": cfg, "message": "创建成功"})
 }
 
@@ -47,6 +50,7 @@ func (h *WafHandler) Update(c *gin.Context) {
 	}
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "waf", fmt.Sprintf("更新WAF配置 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
@@ -54,6 +58,7 @@ func (h *WafHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.db.Delete(&model.WafConfig{}, id)
 	h.db.Where("waf_config_id = ?", id).Delete(&model.WafLog{})
+	logger.WriteLog("info", "waf", fmt.Sprintf("删除WAF配置 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -70,6 +75,7 @@ func (h *WafHandler) Start(c *gin.Context) {
 		"enable": true,
 		"status": "running",
 	})
+	logger.WriteLog("info", "waf", fmt.Sprintf("启动WAF [%d] %s", id, cfg.Name))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
@@ -81,6 +87,7 @@ func (h *WafHandler) Stop(c *gin.Context) {
 		"enable": false,
 		"status": "stopped",
 	})
+	logger.WriteLog("info", "waf", fmt.Sprintf("停止WAF [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 

@@ -1,14 +1,17 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
 	"github.com/netpanel/netpanel/pkg/config"
+	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/pkg/utils"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
@@ -120,10 +123,12 @@ func (h *SystemHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 
+	var keys []string
 	for key, value := range req {
 		h.db.Model(&model.SystemConfig{}).Where("key = ?", key).Update("value", value)
+		keys = append(keys, key)
 	}
-
+	logger.WriteLog("info", "system", fmt.Sprintf("更新系统配置: %s", strings.Join(keys, ", ")))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "配置已更新"})
 }
 
@@ -170,6 +175,7 @@ func (h *SystemHandler) ChangePassword(c *gin.Context) {
 		if username == "admin" {
 			h.db.Model(&model.SystemConfig{}).Where("key = ?", "admin_password").Update("value", hashed)
 		}
+		logger.WriteLog("info", "system", fmt.Sprintf("用户 %s 修改了密码", username))
 		c.JSON(http.StatusOK, gin.H{"code": 200, "message": "密码修改成功"})
 		return
 	}
@@ -194,5 +200,6 @@ func (h *SystemHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 	h.db.Model(&model.SystemConfig{}).Where("key = ?", "admin_password").Update("value", hashed)
+	logger.WriteLog("info", "system", fmt.Sprintf("用户 %s 修改了密码(旧版兼容)", username))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "密码修改成功"})
 }

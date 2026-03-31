@@ -28,7 +28,8 @@ const Dnsmasq: React.FC = () => {
 
   const handleSaveConfig = async () => {
     const values = await configForm.validateFields()
-    await dnsmasqApi.updateConfig(values)
+    // 携带已有配置的 id 和 enable，确保后端更新而非创建新记录
+    await dnsmasqApi.updateConfig({ ...config, ...values })
     message.success(t('common.success'))
     fetchData()
   }

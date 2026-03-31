@@ -28,6 +28,7 @@ import {
 } from '@ant-design/icons'
 import {useTranslation} from 'react-i18next'
 import {portForwardApi} from '../api'
+import {useTunnelApi} from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
 
 const {Text} = Typography
@@ -73,11 +74,15 @@ const PORT_TYPE_COLOR: Record<string, string> = {
     http: 'green',
     https: 'cyan',
     socks: 'purple',
-    websocket: 'geekblue',
+    ws: 'geekblue',
+    wss: 'magenta',
 }
 
 const PortForward: React.FC = () => {
     const {t} = useTranslation()
+    const tunnelCtx = useTunnelApi()
+    const api = tunnelCtx?.api || portForwardApi
+    const isRemote = tunnelCtx?.isRemoteMode || false
     const [data, setData] = useState<PortForwardRule[]>([])
     const [loading, setLoading] = useState(false)
     const [modalOpen, setModalOpen] = useState(false)
@@ -90,7 +95,7 @@ const PortForward: React.FC = () => {
 
     const fetchCerts = async () => {
         try {
-            const res: any = await portForwardApi.listCerts()
+            const res: any = await api.listCerts()
             setCerts(res.data || [])
         } catch {
             setCerts([])
@@ -100,7 +105,7 @@ const PortForward: React.FC = () => {
     const fetchData = async () => {
         setLoading(true)
         try {
-            const res: any = await portForwardApi.list()
+            const res: any = await api.list()
             setData(res.data || [])
         } finally {
             setLoading(false)
@@ -130,40 +135,41 @@ const PortForward: React.FC = () => {
         setEditRecord(record)
         form.setFieldsValue(record)
         setListenPortType(record.listen_port_type || 'tcp')
-        if (record.listen_port_type === 'https') fetchCerts()
+        if (record.listen_port_type === 'https' || record.listen_port_type === 'wss') fetchCerts()
         setModalOpen(true)
     }
 
     const handleDelete = async (id: number) => {
-        await portForwardApi.delete(id)
+        await api.delete(id)
         message.success(t('common.success'))
         fetchData()
+        tunnelCtx?.onRefresh?.()
     }
 
     const handleToggle = async (record: PortForwardRule, checked: boolean) => {
-        await portForwardApi.update(record.id, {...record, enable: checked})
+        await api.update(record.id, {...record, enable: checked})
         if (checked) {
-            await portForwardApi.start(record.id)
+            await api.start(record.id)
         } else {
-            await portForwardApi.stop(record.id)
+            await api.stop(record.id)
         }
         fetchData()
     }
 
     const handleStart = async (id: number) => {
-        await portForwardApi.start(id)
+        await api.start(id)
         message.success('已启动')
         fetchData()
     }
 
     const handleStop = async (id: number) => {
-        await portForwardApi.stop(id)
+        await api.stop(id)
         message.success('已停止')
         fetchData()
     }
 
     const handleViewLogs = async (id: number) => {
-        const res: any = await portForwardApi.getLogs(id)
+        const res: any = await api.getLogs(id)
         setLogs(res.data || [])
         setLogModalOpen(true)
     }
@@ -171,13 +177,14 @@ const PortForward: React.FC = () => {
     const handleSubmit = async () => {
         const values = await form.validateFields()
         if (editRecord) {
-            await portForwardApi.update(editRecord.id, values)
+            await api.update(editRecord.id, values)
         } else {
-            await portForwardApi.create(values)
+            await api.create(values)
         }
         message.success(t('common.success'))
         setModalOpen(false)
         fetchData()
+        tunnelCtx?.onRefresh?.()
     }
 
     const columns = [
@@ -294,12 +301,19 @@ const PortForward: React.FC = () => {
 
     return (
         <div>
+            {!isRemote && (
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16}}>
                 <Typography.Title level={4} style={{margin: 0}}>{t('portForward.title')}</Typography.Title>
                 <Button type="primary" icon={<PlusOutlined/>} onClick={handleCreate}>
                     {t('common.create')}
                 </Button>
             </div>
+            )}
+            {isRemote && (
+            <div style={{display: 'flex', justifyContent: 'flex-end', marginBottom: 12}}>
+                <Button type="primary" icon={<PlusOutlined/>} onClick={handleCreate}>{t('common.create')}</Button>
+            </div>
+            )}
 
             <Table
                 dataSource={data}
@@ -374,7 +388,7 @@ const PortForward: React.FC = () => {
                                                 style={{width: '100%'}}
                                                 onChange={(val: string) => {
                                                     setListenPortType(val)
-                                                    if (val === 'https') fetchCerts()
+                                                    if (val === 'https' || val === 'wss') fetchCerts()
                                                     else form.setFieldValue('domain_cert_id', undefined)
                                                 }}
                                             >
@@ -383,7 +397,8 @@ const PortForward: React.FC = () => {
                                                 <Option value="http">HTTP</Option>
                                                 <Option value="https">HTTPS</Option>
                                                 <Option value="socks">SOCKS</Option>
-                                                <Option value="websocket">WEBSOCKET</Option>
+                                                <Option value="ws">WS</Option>
+                                                <Option value="wss">WSS</Option>
                                             </Select>
                                         </Form.Item>
                                     </Col>
@@ -419,7 +434,8 @@ const PortForward: React.FC = () => {
                                                 <Option value="http">HTTP</Option>
                                                 <Option value="https">HTTPS</Option>
                                                 <Option value="socks">SOCKS</Option>
-                                                <Option value="websocket">WEBSOCKET</Option>
+                                                <Option value="ws">WS</Option>
+                                                <Option value="wss">WSS</Option>
                                             </Select>
                                         </Form.Item>
                                     </Col>
@@ -439,7 +455,7 @@ const PortForward: React.FC = () => {
                                     </Col>
                                     <Col span={16}>
                                         {/* HTTPS 证书选择 */}
-                                        {listenPortType === 'https' && (
+                                        {(listenPortType === 'https' || listenPortType === 'wss') && (
                                             <Form.Item
                                                 name="domain_cert_id"
                                                 label="SSL 证书"

@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -49,6 +51,7 @@ func (h *StunHandler) Create(c *gin.Context) {
 	if rule.Enable {
 		h.mgr.Start(rule.ID)
 	}
+	logger.WriteLog("info", "stun", fmt.Sprintf("创建STUN穿透规则 [%d]", rule.ID))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": rule, "message": "创建成功"})
 }
 
@@ -65,6 +68,7 @@ func (h *StunHandler) Update(c *gin.Context) {
 	if req.Enable {
 		h.mgr.Start(uint(id))
 	}
+	logger.WriteLog("info", "stun", fmt.Sprintf("修改STUN穿透规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
@@ -72,6 +76,7 @@ func (h *StunHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.Stop(uint(id))
 	h.db.Delete(&model.StunRule{}, id)
+	logger.WriteLog("info", "stun", fmt.Sprintf("删除STUN穿透规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -82,6 +87,7 @@ func (h *StunHandler) Start(c *gin.Context) {
 		return
 	}
 	h.db.Model(&model.StunRule{}).Where("id = ?", id).Update("enable", true)
+	logger.WriteLog("info", "stun", fmt.Sprintf("启动STUN穿透规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
@@ -89,6 +95,7 @@ func (h *StunHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.Stop(uint(id))
 	h.db.Model(&model.StunRule{}).Where("id = ?", id).Update("enable", false)
+	logger.WriteLog("info", "stun", fmt.Sprintf("停止STUN穿透规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 

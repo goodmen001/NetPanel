@@ -15,6 +15,7 @@ const NpsServer = lazy(() => import('./pages/NpsServer'))
 const NpsClient = lazy(() => import('./pages/NpsClient'))
 const EasytierClient = lazy(() => import('./pages/EasytierClient'))
 const EasytierServer = lazy(() => import('./pages/EasytierServer'))
+const Wireguard = lazy(() => import('./pages/Wireguard'))
 const Ddns = lazy(() => import('./pages/Ddns'))
 const Caddy = lazy(() => import('./pages/Caddy'))
 const Wol = lazy(() => import('./pages/Wol'))
@@ -35,6 +36,10 @@ const CallbackTask = lazy(() => import('./pages/CallbackTask'))
 const Settings = lazy(() => import('./pages/Settings'))
 const SystemLogs = lazy(() => import('./pages/SystemLogs'))
 const UserManagement = lazy(() => import('./pages/UserManagement'))
+const MeshNodes = lazy(() => import('./pages/MeshNodes'))
+const MeshTunnels = lazy(() => import('./pages/MeshTunnels'))
+const MeshTopology = lazy(() => import('./pages/MeshTopology'))
+const MeshEvents = lazy(() => import('./pages/MeshEvents'))
 
 const PageLoader: React.FC = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 300 }}>
@@ -71,6 +76,7 @@ const App: React.FC = () => {
         <Route path="nps/client" element={<Suspense fallback={<PageLoader />}><NpsClient /></Suspense>} />
         <Route path="easytier/client" element={<Suspense fallback={<PageLoader />}><EasytierClient /></Suspense>} />
         <Route path="easytier/server" element={<Suspense fallback={<PageLoader />}><EasytierServer /></Suspense>} />
+        <Route path="wireguard" element={<Suspense fallback={<PageLoader />}><Wireguard /></Suspense>} />
         <Route path="ddns" element={<Suspense fallback={<PageLoader />}><Ddns /></Suspense>} />
         <Route path="caddy" element={<Suspense fallback={<PageLoader />}><Caddy /></Suspense>} />
         <Route path="wol" element={<Suspense fallback={<PageLoader />}><Wol /></Suspense>} />
@@ -91,6 +97,10 @@ const App: React.FC = () => {
         <Route path="settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
         <Route path="admin/logs" element={<Suspense fallback={<PageLoader />}><SystemLogs /></Suspense>} />
         <Route path="admin/users" element={<Suspense fallback={<PageLoader />}><UserManagement /></Suspense>} />
+        <Route path="mesh/nodes" element={<Suspense fallback={<PageLoader />}><MeshNodes /></Suspense>} />
+        <Route path="mesh/tunnels" element={<Suspense fallback={<PageLoader />}><MeshTunnels /></Suspense>} />
+        <Route path="mesh/topology" element={<Suspense fallback={<PageLoader />}><MeshTopology /></Suspense>} />
+        <Route path="mesh/events" element={<Suspense fallback={<PageLoader />}><MeshEvents /></Suspense>} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/easytier"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -43,6 +45,7 @@ func (h *EasytierHandler) Create(c *gin.Context) {
 	if client.Enable {
 		h.mgr.StartClient(client.ID)
 	}
+	logger.WriteLog("info", "easytier", fmt.Sprintf("创建EasyTier客户端 [%d] %s", client.ID, client.Name))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": client, "message": "创建成功"})
 }
 
@@ -59,6 +62,7 @@ func (h *EasytierHandler) Update(c *gin.Context) {
 	if req.Enable {
 		h.mgr.StartClient(uint(id))
 	}
+	logger.WriteLog("info", "easytier", fmt.Sprintf("更新EasyTier客户端 [%d] %s", id, req.Name))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
@@ -66,6 +70,7 @@ func (h *EasytierHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.StopClient(uint(id))
 	h.db.Delete(&model.EasytierClient{}, id)
+	logger.WriteLog("info", "easytier", fmt.Sprintf("删除EasyTier客户端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -76,6 +81,7 @@ func (h *EasytierHandler) Start(c *gin.Context) {
 		return
 	}
 	h.db.Model(&model.EasytierClient{}).Where("id = ?", id).Update("enable", true)
+	logger.WriteLog("info", "easytier", fmt.Sprintf("启动EasyTier客户端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
@@ -83,6 +89,7 @@ func (h *EasytierHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.StopClient(uint(id))
 	h.db.Model(&model.EasytierClient{}).Where("id = ?", id).Update("enable", false)
+	logger.WriteLog("info", "easytier", fmt.Sprintf("停止EasyTier客户端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 
@@ -124,6 +131,7 @@ func (h *EasytierServerHandler) Create(c *gin.Context) {
 	if server.Enable {
 		h.mgr.StartServer(server.ID)
 	}
+	logger.WriteLog("info", "easytier", fmt.Sprintf("创建EasyTier服务端 [%d] %s", server.ID, server.Name))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": server, "message": "创建成功"})
 }
 
@@ -140,6 +148,7 @@ func (h *EasytierServerHandler) Update(c *gin.Context) {
 	if req.Enable {
 		h.mgr.StartServer(uint(id))
 	}
+	logger.WriteLog("info", "easytier", fmt.Sprintf("更新EasyTier服务端 [%d] %s", id, req.Name))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
@@ -147,6 +156,7 @@ func (h *EasytierServerHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.StopServer(uint(id))
 	h.db.Delete(&model.EasytierServer{}, id)
+	logger.WriteLog("info", "easytier", fmt.Sprintf("删除EasyTier服务端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -157,6 +167,7 @@ func (h *EasytierServerHandler) Start(c *gin.Context) {
 		return
 	}
 	h.db.Model(&model.EasytierServer{}).Where("id = ?", id).Update("enable", true)
+	logger.WriteLog("info", "easytier", fmt.Sprintf("启动EasyTier服务端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
@@ -164,5 +175,6 @@ func (h *EasytierServerHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.StopServer(uint(id))
 	h.db.Model(&model.EasytierServer{}).Where("id = ?", id).Update("enable", false)
+	logger.WriteLog("info", "easytier", fmt.Sprintf("停止EasyTier服务端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }

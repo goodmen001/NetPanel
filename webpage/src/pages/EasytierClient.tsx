@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { easytierClientApi } from '../api'
+import { useTunnelApi } from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
 
 const { Text } = Typography
@@ -134,6 +135,9 @@ const randomStr = (len: number, chars = 'abcdefghijklmnopqrstuvwxyz0123456789') 
 
 // ---- 主组件 ----
 const EasytierClient: React.FC = () => {
+  const tunnelCtx = useTunnelApi()
+  const api = tunnelCtx?.api || easytierClientApi
+  const isRemote = tunnelCtx?.isRemoteMode || false
   const { t } = useTranslation()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -165,7 +169,7 @@ const EasytierClient: React.FC = () => {
       server_addr: `${proto}://${host}:${port}`,
       remark: remark || '',
     }
-    await easytierClientApi.create(payload)
+    await api.create(payload)
     message.success('创建成功')
     setQuickModalOpen(false)
     fetchData()
@@ -174,7 +178,7 @@ const EasytierClient: React.FC = () => {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const res: any = await easytierClientApi.list()
+      const res: any = await api.list()
       setData(res.data || [])
     } finally { setLoading(false) }
   }
@@ -255,18 +259,19 @@ const EasytierClient: React.FC = () => {
     values.stun_servers_v6 = (values.stun_servers_v6_list || []).map((i: any) => i.value).filter(Boolean).join(',')
     delete values.stun_servers_v6_list
     if (editRecord) {
-      await easytierClientApi.update(editRecord.id, values)
+      await api.update(editRecord.id, values)
     } else {
-      await easytierClientApi.create(values)
+      await api.create(values)
     }
     message.success(t('common.success'))
     setModalOpen(false)
     fetchData()
+    tunnelCtx?.onRefresh?.()
   }
 
   const handleToggle = async (record: any, checked: boolean) => {
-    await easytierClientApi.update(record.id, { ...record, enable: checked })
-    checked ? await easytierClientApi.start(record.id) : await easytierClientApi.stop(record.id)
+    await api.update(record.id, { ...record, enable: checked })
+    checked ? await api.start(record.id) : await api.stop(record.id)
     fetchData()
   }
 
@@ -327,12 +332,12 @@ const EasytierClient: React.FC = () => {
       render: (_: any, r: any) => (
         <Space size={4}>
           {r.status === 'running'
-            ? <Tooltip title={t('common.stop')}><Button size="small" icon={<StopOutlined />} onClick={async () => { await easytierClientApi.stop(r.id); fetchData() }} /></Tooltip>
-            : <Tooltip title={t('common.start')}><Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={async () => { await easytierClientApi.start(r.id); fetchData() }} /></Tooltip>
+            ? <Tooltip title={t('common.stop')}><Button size="small" icon={<StopOutlined />} onClick={async () => { await api.stop(r.id); fetchData() }} /></Tooltip>
+            : <Tooltip title={t('common.start')}><Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={async () => { await api.start(r.id); fetchData() }} /></Tooltip>
           }
           {r.last_error && <Tooltip title={r.last_error}><Button size="small" icon={<InfoCircleOutlined />} danger /></Tooltip>}
           <Tooltip title={t('common.edit')}><Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)} /></Tooltip>
-          <Popconfirm title={t('common.deleteConfirm')} onConfirm={async () => { await easytierClientApi.delete(r.id); fetchData() }}>
+          <Popconfirm title={t('common.deleteConfirm')} onConfirm={async () => { await api.delete(r.id); fetchData() }}>
             <Tooltip title={t('common.delete')}><Button size="small" danger icon={<DeleteOutlined />} /></Tooltip>
           </Popconfirm>
         </Space>
@@ -961,13 +966,14 @@ const EasytierClient: React.FC = () => {
 
   return (
     <div>
-      {hasError && (
+      {hasError && !isRemote && (
         <Alert
           message={t('easytier.binaryNotFound')}
           description="请前往 GitHub Releases 下载对应平台的 easytier-core 二进制文件，放置到程序目录的 bin/ 文件夹下。"
           type="warning" showIcon closable style={{ marginBottom: 16 }}
         />
       )}
+      {!isRemote && (
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>{t('easytier.clientTitle')}</Typography.Title>
         <Space>
@@ -975,6 +981,15 @@ const EasytierClient: React.FC = () => {
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
         </Space>
       </div>
+      )}
+      {isRemote && (
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Space>
+          <Button icon={<ThunderboltOutlined />} onClick={handleQuickCreate} style={{ background: '#52c41a', borderColor: '#52c41a', color: '#fff' }}>快速创建</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
+        </Space>
+      </div>
+      )}
 
       <Table
         dataSource={data} columns={columns} rowKey="id" loading={loading}

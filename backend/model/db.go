@@ -88,6 +88,10 @@ func autoMigrate(db *gorm.DB) error {
 		&CallbackTask{},
 		&SystemLog{},
 		&User{},
+		&WireguardConfig{},
+		&WireguardPeer{},WireguardPeer{},
+		&MeshNode{},
+		&MeshNodeEvent{},
 	)
 }
 

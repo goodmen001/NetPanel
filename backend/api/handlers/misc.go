@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/caddy"
 	"github.com/netpanel/netpanel/service/cron"
 	"github.com/netpanel/netpanel/service/dnsmasq"
@@ -43,6 +45,7 @@ func (h *CaddyHandler) Create(c *gin.Context) {
 	}
 	site.Status = "stopped"
 	h.db.Create(&site)
+	logger.WriteLog("info", "caddy", fmt.Sprintf("创建网页服务: ID=%d", site.ID))
 	if site.Enable {
 		h.mgr.Start(site.ID)
 	}
@@ -59,6 +62,7 @@ func (h *CaddyHandler) Update(c *gin.Context) {
 	h.mgr.Stop(uint(id))
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "caddy", fmt.Sprintf("修改网页服务: ID=%d", id))
 	if req.Enable {
 		h.mgr.Start(uint(id))
 	}
@@ -69,6 +73,7 @@ func (h *CaddyHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.Stop(uint(id))
 	h.db.Delete(&model.CaddySite{}, id)
+	logger.WriteLog("info", "caddy", fmt.Sprintf("删除网页服务: ID=%d", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -79,6 +84,7 @@ func (h *CaddyHandler) Start(c *gin.Context) {
 		return
 	}
 	h.db.Model(&model.CaddySite{}).Where("id = ?", id).Update("enable", true)
+	logger.WriteLog("info", "caddy", fmt.Sprintf("启动网页服务: ID=%d", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
@@ -86,6 +92,7 @@ func (h *CaddyHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.Stop(uint(id))
 	h.db.Model(&model.CaddySite{}).Where("id = ?", id).Update("enable", false)
+	logger.WriteLog("info", "caddy", fmt.Sprintf("停止网页服务: ID=%d", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 
@@ -103,7 +110,7 @@ func NewDnsmasqHandler(db *gorm.DB, log *logrus.Logger, mgr *dnsmasq.Manager) *D
 
 func (h *DnsmasqHandler) GetConfig(c *gin.Context) {
 	var cfg model.DnsmasqConfig
-	h.db.First(&cfg)
+	h.db.Order("id desc").First(&cfg)
 	cfg.Status = h.mgr.GetStatus()
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": cfg})
 }
@@ -115,11 +122,19 @@ func (h *DnsmasqHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 	h.mgr.Stop()
+	// 如果前端未传 ID，尝试查找已有配置进行更新（全局单例配置）
+	if req.ID == 0 {
+		var existing model.DnsmasqConfig
+		if err := h.db.First(&existing).Error; err == nil {
+			req.ID = existing.ID
+		}
+	}
 	if req.ID == 0 {
 		h.db.Create(&req)
 	} else {
 		h.db.Save(&req)
 	}
+	logger.WriteLog("info", "dnsmasq", "修改 DNSMasq 配置")
 	if req.Enable {
 		h.mgr.Start()
 	}
@@ -131,11 +146,13 @@ func (h *DnsmasqHandler) Start(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	logger.WriteLog("info", "dnsmasq", "启动 DNSMasq 服务")
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
 func (h *DnsmasqHandler) Stop(c *gin.Context) {
 	h.mgr.Stop()
+	logger.WriteLog("info", "dnsmasq", "停止 DNSMasq 服务")
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 
@@ -152,6 +169,7 @@ func (h *DnsmasqHandler) CreateRecord(c *gin.Context) {
 		return
 	}
 	h.db.Create(&record)
+	logger.WriteLog("info", "dnsmasq", fmt.Sprintf("创建 DNS 记录: ID=%d", record.ID))
 	h.mgr.Reload()
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": record, "message": "创建成功"})
 }
@@ -165,6 +183,7 @@ func (h *DnsmasqHandler) UpdateRecord(c *gin.Context) {
 	}
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "dnsmasq", fmt.Sprintf("修改 DNS 记录: ID=%d", id))
 	h.mgr.Reload()
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
@@ -172,6 +191,7 @@ func (h *DnsmasqHandler) UpdateRecord(c *gin.Context) {
 func (h *DnsmasqHandler) DeleteRecord(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.db.Delete(&model.DnsmasqRecord{}, id)
+	logger.WriteLog("info", "dnsmasq", fmt.Sprintf("删除 DNS 记录: ID=%d", id))
 	h.mgr.Reload()
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
@@ -201,6 +221,7 @@ func (h *CronHandler) Create(c *gin.Context) {
 		return
 	}
 	h.db.Create(&task)
+	logger.WriteLog("info", "cron", fmt.Sprintf("创建计划任务: ID=%d", task.ID))
 	if task.Enable {
 		h.mgr.AddTask(&task)
 	}
@@ -217,6 +238,7 @@ func (h *CronHandler) Update(c *gin.Context) {
 	h.mgr.RemoveTask(uint(id))
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "cron", fmt.Sprintf("修改计划任务: ID=%d", id))
 	if req.Enable {
 		h.mgr.AddTask(&req)
 	}
@@ -227,6 +249,7 @@ func (h *CronHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.RemoveTask(uint(id))
 	h.db.Delete(&model.CronTask{}, id)
+	logger.WriteLog("info", "cron", fmt.Sprintf("删除计划任务: ID=%d", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -240,6 +263,7 @@ func (h *CronHandler) Enable(c *gin.Context) {
 	task.Enable = true
 	h.db.Save(&task)
 	h.mgr.AddTask(&task)
+	logger.WriteLog("info", "cron", fmt.Sprintf("启用计划任务: ID=%d", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启用"})
 }
 
@@ -247,11 +271,13 @@ func (h *CronHandler) Disable(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.RemoveTask(uint(id))
 	h.db.Model(&model.CronTask{}).Where("id = ?", id).Update("enable", false)
+	logger.WriteLog("info", "cron", fmt.Sprintf("禁用计划任务: ID=%d", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已禁用"})
 }
 
 func (h *CronHandler) RunNow(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	logger.WriteLog("info", "cron", fmt.Sprintf("手动执行计划任务: ID=%d", id))
 	if err := h.mgr.RunNow(uint(id)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
@@ -288,6 +314,7 @@ func (h *StorageHandler) Create(c *gin.Context) {
 	}
 	cfg.Status = "stopped"
 	h.db.Create(&cfg)
+	logger.WriteLog("info", "storage", fmt.Sprintf("创建网络存储: ID=%d", cfg.ID))
 	if cfg.Enable {
 		h.mgr.Start(cfg.ID)
 	}
@@ -304,6 +331,7 @@ func (h *StorageHandler) Update(c *gin.Context) {
 	h.mgr.Stop(uint(id))
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "storage", fmt.Sprintf("修改网络存储: ID=%d", id))
 	if req.Enable {
 		h.mgr.Start(uint(id))
 	}
@@ -314,6 +342,7 @@ func (h *StorageHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.Stop(uint(id))
 	h.db.Delete(&model.StorageConfig{}, id)
+	logger.WriteLog("info", "storage", fmt.Sprintf("删除网络存储: ID=%d", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -324,6 +353,7 @@ func (h *StorageHandler) Start(c *gin.Context) {
 		return
 	}
 	h.db.Model(&model.StorageConfig{}).Where("id = ?", id).Update("enable", true)
+	logger.WriteLog("info", "storage", fmt.Sprintf("启动网络存储: ID=%d", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
@@ -331,5 +361,6 @@ func (h *StorageHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.Stop(uint(id))
 	h.db.Model(&model.StorageConfig{}).Where("id = ?", id).Update("enable", false)
+	logger.WriteLog("info", "storage", fmt.Sprintf("停止网络存储: ID=%d", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }

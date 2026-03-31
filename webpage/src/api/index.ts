@@ -90,6 +90,23 @@ export const easytierServerApi = {
   stop: (id: number) => request.post(`/v1/easytier/server/${id}/stop`),
 }
 
+// ===== WireGuard =====
+export const wireguardApi = {
+  list: () => request.get('/v1/wireguard'),
+  create: (data: any) => request.post('/v1/wireguard', data),
+  update: (id: number, data: any) => request.put(`/v1/wireguard/${id}`, data),
+  delete: (id: number) => request.delete(`/v1/wireguard/${id}`),
+  start: (id: number) => request.post(`/v1/wireguard/${id}/start`),
+  stop: (id: number) => request.post(`/v1/wireguard/${id}/stop`),
+  getStatus: (id: number) => request.get(`/v1/wireguard/${id}/status`),
+  generateKeyPair: () => request.post('/v1/wireguard/generate-keypair'),
+  // 对等节点管理
+  listPeers: (wgId: number) => request.get(`/v1/wireguard/${wgId}/peers`),
+  createPeer: (wgId: number, data: any) => request.post(`/v1/wireguard/${wgId}/peers`, data),
+  updatePeer: (wgId: number, peerId: number, data: any) => request.put(`/v1/wireguard/${wgId}/peers/${peerId}`, data),
+  deletePeer: (wgId: number, peerId: number) => request.delete(`/v1/wireguard/${wgId}/peers/${peerId}`),
+}
+
 // ===== DDNS =====
 export const ddnsApi = {
   list: () => request.get('/v1/ddns'),
@@ -304,4 +321,92 @@ export const adminApi = {
   updateUser: (id: number, data: any) => request.put(`/v1/admin/users/${id}`, data),
   deleteUser: (id: number) => request.delete(`/v1/admin/users/${id}`),
   getCurrentUser: () => request.get('/v1/admin/users/me'),
+}
+
+// ===== 组网节点管理 =====
+export const meshNodeApi = {
+  // 节点管理
+  listNodes: () => request.get('/v1/mesh/nodes'),
+  createNode: (data: any) => request.post('/v1/mesh/nodes', data),
+  getNode: (id: number) => request.get(`/v1/mesh/nodes/${id}`),
+  updateNode: (id: number, data: any) => request.put(`/v1/mesh/nodes/${id}`, data),
+  deleteNode: (id: number) => request.delete(`/v1/mesh/nodes/${id}`),
+  checkNode: (id: number) => request.post(`/v1/mesh/nodes/${id}/check`),
+  // 拓扑
+  getTopology: () => request.get('/v1/mesh/topology'),
+  // 事件
+  listEvents: (params?: any) => request.get('/v1/mesh/events', { params }),
+  cleanEvents: (days: number) => request.delete('/v1/mesh/events', { params: { days } }),
+  // Ping
+  ping: (targetUrl: string) => request.post('/v1/mesh/ping', { target_url: targetUrl }),
+  // 代理请求到远程节点
+  proxyGet: (nodeId: number, path: string, params?: any) =>
+    request.get(`/v1/mesh/proxy/${nodeId}${path}`, { params }),
+  proxyPost: (nodeId: number, path: string, data?: any) =>
+    request.post(`/v1/mesh/proxy/${nodeId}${path}`, data),
+  proxyPut: (nodeId: number, path: string, data?: any) =>
+    request.put(`/v1/mesh/proxy/${nodeId}${path}`, data),
+  proxyDelete: (nodeId: number, path: string) =>
+    request.delete(`/v1/mesh/proxy/${nodeId}${path}`),
+}
+
+// ===== 远程节点隧道 API 工厂 =====
+// 根据隧道类型和节点ID，生成与本地 API 接口兼容的 proxy 版本
+// 当 nodeId 为 0 或 isLocal 为 true 时，直接使用本地 API
+const TUNNEL_API_PATHS: Record<string, string> = {
+  'port-forward': '/port-forward',
+  'stun': '/stun',
+  'frpc': '/frpc',
+  'frps': '/frps',
+  'nps-client': '/nps/client',
+  'nps-server': '/nps/server',
+  'easytier-client': '/easytier/client',
+  'easytier-server': '/easytier/server',
+}
+
+const LOCAL_APIS: Record<string, any> = {
+  'port-forward': portForwardApi,
+  'stun': stunApi,
+  'frpc': frpcApi,
+  'frps': frpsApi,
+  'nps-client': npsClientApi,
+  'nps-server': npsServerApi,
+  'easytier-client': easytierClientApi,
+  'easytier-server': easytierServerApi,
+}
+
+export function createRemoteTunnelApi(tunnelType: string, nodeId: number, isLocal: boolean) {
+  // 本机节点直接使用本地 API
+  if (isLocal) {
+    return LOCAL_APIS[tunnelType] || null
+  }
+
+  const basePath = TUNNEL_API_PATHS[tunnelType]
+  if (!basePath) return null
+
+  return {
+    list: () => meshNodeApi.proxyGet(nodeId, basePath),
+    create: (data: any) => meshNodeApi.proxyPost(nodeId, basePath, data),
+    update: (id: number, data: any) => meshNodeApi.proxyPut(nodeId, `${basePath}/${id}`, data),
+    delete: (id: number) => meshNodeApi.proxyDelete(nodeId, `${basePath}/${id}`),
+    start: (id: number) => meshNodeApi.proxyPost(nodeId, `${basePath}/${id}/start`),
+    stop: (id: number) => meshNodeApi.proxyPost(nodeId, `${basePath}/${id}/stop`),
+    restart: (id: number) => meshNodeApi.proxyPost(nodeId, `${basePath}/${id}/restart`),
+    // FRP 客户端代理管理
+    listProxies: (frpcId: number) => meshNodeApi.proxyGet(nodeId, `/frpc/${frpcId}/proxies`),
+    createProxy: (frpcId: number, data: any) => meshNodeApi.proxyPost(nodeId, `/frpc/${frpcId}/proxies`, data),
+    updateProxy: (frpcId: number, proxyId: number, data: any) => meshNodeApi.proxyPut(nodeId, `/frpc/${frpcId}/proxies/${proxyId}`, data),
+    deleteProxy: (frpcId: number, proxyId: number) => meshNodeApi.proxyDelete(nodeId, `/frpc/${frpcId}/proxies/${proxyId}`),
+    // NPS 客户端隧道管理
+    listTunnels: (clientId: number) => meshNodeApi.proxyGet(nodeId, `/nps/client/${clientId}/tunnels`),
+    createTunnel: (clientId: number, data: any) => meshNodeApi.proxyPost(nodeId, `/nps/client/${clientId}/tunnels`, data),
+    updateTunnel: (clientId: number, tunnelId: number, data: any) => meshNodeApi.proxyPut(nodeId, `/nps/client/${clientId}/tunnels/${tunnelId}`, data),
+    deleteTunnel: (clientId: number, tunnelId: number) => meshNodeApi.proxyDelete(nodeId, `/nps/client/${clientId}/tunnels/${tunnelId}`),
+    // 端口转发证书
+    listCerts: () => meshNodeApi.proxyGet(nodeId, '/port-forward/certs'),
+    // STUN 状态
+    getStatus: (id: number) => meshNodeApi.proxyGet(nodeId, `${basePath}/${id}/status`),
+    // 端口转发日志
+    getLogs: (id: number) => meshNodeApi.proxyGet(nodeId, `${basePath}/${id}/logs`),
+  }
 }

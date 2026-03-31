@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { easytierServerApi } from '../api'
+import { useTunnelApi } from '../contexts/TunnelApiContext'
 import StatusTag from '../components/StatusTag'
 
 const { Text } = Typography
@@ -46,6 +47,9 @@ const parseListenPorts = (s: string): string[] => {
 const joinListenPorts = (ports: string[]): string => (ports || []).filter(Boolean).join(',')
 
 const EasytierServer: React.FC = () => {
+  const tunnelCtx = useTunnelApi()
+  const api = tunnelCtx?.api || easytierServerApi
+  const isRemote = tunnelCtx?.isRemoteMode || false
   const { t } = useTranslation()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -59,7 +63,7 @@ const EasytierServer: React.FC = () => {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const res: any = await easytierServerApi.list()
+      const res: any = await api.list()
       setData(res.data || [])
     } finally { setLoading(false) }
   }
@@ -101,7 +105,7 @@ const EasytierServer: React.FC = () => {
       dhcp: values.dhcp || false,
       ipv4: values.dhcp ? '' : (values.ipv4 || ''),
     }
-    await easytierServerApi.create(payload)
+    await api.create(payload)
     message.success(t('common.success'))
     setQuickModalOpen(false)
     fetchData()
@@ -145,18 +149,19 @@ const EasytierServer: React.FC = () => {
     )
     delete values.listen_ports_list
     if (editRecord) {
-      await easytierServerApi.update(editRecord.id, values)
+      await api.update(editRecord.id, values)
     } else {
-      await easytierServerApi.create(values)
+      await api.create(values)
     }
     message.success(t('common.success'))
     setModalOpen(false)
     fetchData()
+    tunnelCtx?.onRefresh?.()
   }
 
   const handleToggle = async (record: any, checked: boolean) => {
-    await easytierServerApi.update(record.id, { ...record, enable: checked })
-    checked ? await easytierServerApi.start(record.id) : await easytierServerApi.stop(record.id)
+    await api.update(record.id, { ...record, enable: checked })
+    checked ? await api.start(record.id) : await api.stop(record.id)
     fetchData()
   }
 
@@ -213,12 +218,12 @@ const EasytierServer: React.FC = () => {
       render: (_: any, r: any) => (
         <Space size={4}>
           {r.status === 'running'
-            ? <Tooltip title={t('common.stop')}><Button size="small" icon={<StopOutlined />} onClick={async () => { await easytierServerApi.stop(r.id); fetchData() }} /></Tooltip>
-            : <Tooltip title={t('common.start')}><Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={async () => { await easytierServerApi.start(r.id); fetchData() }} /></Tooltip>
+            ? <Tooltip title={t('common.stop')}><Button size="small" icon={<StopOutlined />} onClick={async () => { await api.stop(r.id); fetchData() }} /></Tooltip>
+            : <Tooltip title={t('common.start')}><Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={async () => { await api.start(r.id); fetchData() }} /></Tooltip>
           }
           {r.last_error && <Tooltip title={r.last_error}><Button size="small" icon={<InfoCircleOutlined />} danger /></Tooltip>}
           <Tooltip title={t('common.edit')}><Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)} /></Tooltip>
-          <Popconfirm title={t('common.deleteConfirm')} onConfirm={async () => { await easytierServerApi.delete(r.id); fetchData() }}>
+          <Popconfirm title={t('common.deleteConfirm')} onConfirm={async () => { await api.delete(r.id); fetchData() }}>
             <Tooltip title={t('common.delete')}><Button size="small" danger icon={<DeleteOutlined />} /></Tooltip>
           </Popconfirm>
         </Space>
@@ -458,8 +463,8 @@ const EasytierServer: React.FC = () => {
     </>
   )
 
-  // ===== Tab 4: 网络行为 =====
-  const tabNetwork = (
+  // ===== Tab 4: 网络与安全 =====
+  const tabNetworkSecurity = (
     <>
       <SectionTitle>基础行为</SectionTitle>
       <Row gutter={[16, 0]}>
@@ -549,12 +554,7 @@ const EasytierServer: React.FC = () => {
           </Form.Item>
         </Col>
       </Row>
-    </>
-  )
 
-  // ===== Tab 5: 安全 =====
-  const tabSecurity = (
-    <>
       <SectionTitle>安全选项</SectionTitle>
       <Row gutter={[16, 0]}>
         <Col span={12}>
@@ -723,6 +723,7 @@ const EasytierServer: React.FC = () => {
 
   return (
     <div>
+      {!isRemote && (
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>{t('easytier.serverTitle')}</Typography.Title>
         <Space>
@@ -730,6 +731,15 @@ const EasytierServer: React.FC = () => {
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
         </Space>
       </div>
+      )}
+      {isRemote && (
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Space>
+          <Button icon={<ThunderboltOutlined />} onClick={handleQuickCreate} style={{ background: '#52c41a', borderColor: '#52c41a', color: '#fff' }}>快速创建</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
+        </Space>
+      </div>
+      )}
 
       <Table
         dataSource={data} columns={columns} rowKey="id" loading={loading}
@@ -872,8 +882,7 @@ const EasytierServer: React.FC = () => {
               { key: 'basic',    label: <span><SettingOutlined />     基本配置</span>, children: tabBasic },
               { key: 'listen',   label: <span><WifiOutlined />        监听端口</span>, disabled: serverMode === 'config-server', children: tabListen },
               { key: 'routing',  label: <span><GlobalOutlined />      路由转发</span>, disabled: serverMode === 'config-server', children: tabRouting },
-              { key: 'network',  label: <span><ThunderboltOutlined /> 网络行为</span>, disabled: serverMode === 'config-server', children: tabNetwork },
-              { key: 'security', label: <span><SafetyOutlined />      安全与流控</span>, disabled: serverMode === 'config-server', children: tabSecurity },
+              { key: 'network',  label: <span><SafetyOutlined /> 网络与安全</span>, disabled: serverMode === 'config-server', children: tabNetworkSecurity },
               { key: 'other',    label: <span><FileTextOutlined />    日志与其他</span>, children: tabOther },
             ]}
           />

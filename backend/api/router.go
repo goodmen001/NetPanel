@@ -20,6 +20,8 @@ import (
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
+	"github.com/netpanel/netpanel/service/meshnode"
+	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -46,6 +48,8 @@ type RouterOptions struct {
 	CertMgr        *cert.Manager
 	CallbackMgr    *callback.Manager
 	SyslogMgr      *syslog.Manager
+	WireguardMgr   *wireguard.Manager
+	MeshNodeMgr    *meshnode.Manager
 }
 
 // NewRouter 创建路由
@@ -164,6 +168,22 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.DELETE("/easytier/server/:id", etsHandler.Delete)
 	auth.POST("/easytier/server/:id/start", etsHandler.Start)
 	auth.POST("/easytier/server/:id/stop", etsHandler.Stop)
+
+	// WireGuard
+	wgHandler := handlers.NewWireguardHandler(opts.DB, opts.Log, opts.WireguardMgr)
+	auth.GET("/wireguard", wgHandler.List)
+	auth.POST("/wireguard", wgHandler.Create)
+	auth.PUT("/wireguard/:id", wgHandler.Update)
+	auth.DELETE("/wireguard/:id", wgHandler.Delete)
+	auth.POST("/wireguard/:id/start", wgHandler.Start)
+	auth.POST("/wireguard/:id/stop", wgHandler.Stop)
+	auth.GET("/wireguard/:id/status", wgHandler.GetStatus)
+	auth.POST("/wireguard/generate-keypair", wgHandler.GenerateKeyPair)
+	// WireGuard 对等节点
+	auth.GET("/wireguard/:id/peers", wgHandler.ListPeers)
+	auth.POST("/wireguard/:id/peers", wgHandler.CreatePeer)
+	auth.PUT("/wireguard/:id/peers/:pid", wgHandler.UpdatePeer)
+	auth.DELETE("/wireguard/:id/peers/:pid", wgHandler.DeletePeer)
 
 	// DDNS
 	ddnsHandler := handlers.NewDDNSHandler(opts.DB, opts.Log, opts.DdnsMgr)
@@ -340,6 +360,21 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.PUT("/admin/users/:id", userHandler.UpdateUser)
 	auth.DELETE("/admin/users/:id", userHandler.DeleteUser)
 	auth.GET("/admin/users/me", userHandler.GetCurrentUser)
+
+	// ── 组网节点管理 ──────────────────────────────────────────────────────────
+	meshHandler := handlers.NewMeshNodeHandler(opts.DB, opts.Log, opts.MeshNodeMgr)
+	auth.GET("/mesh/nodes", meshHandler.ListNodes)
+	auth.POST("/mesh/nodes", meshHandler.CreateNode)
+	auth.GET("/mesh/nodes/:id", meshHandler.GetNode)
+	auth.PUT("/mesh/nodes/:id", meshHandler.UpdateNode)
+	auth.DELETE("/mesh/nodes/:id", meshHandler.DeleteNode)
+	auth.POST("/mesh/nodes/:id/check", meshHandler.CheckNode)
+	auth.GET("/mesh/topology", meshHandler.GetTopology)
+	auth.GET("/mesh/events", meshHandler.ListEvents)
+	auth.DELETE("/mesh/events", meshHandler.CleanEvents)
+	auth.POST("/mesh/ping", meshHandler.Ping)
+	// 代理请求到远程节点
+	auth.Any("/mesh/proxy/:nodeId/*path", meshHandler.ProxyToNode)
 
 	return r
 }

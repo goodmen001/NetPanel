@@ -103,6 +103,14 @@ build-windows-amd64:
 	cd $(BACKEND_DIR) && GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build \
 		-ldflags="$(LDFLAGS)" -o ../$(DIST_DIR)/netpanel-windows-amd64.exe .
 
+## build-windows-arm64: 构建 Windows arm64
+build-windows-arm64:
+	@mkdir -p $(DIST_DIR)
+	@echo ">>> 生成 Windows 资源文件（UAC manifest）..."
+	cd $(BACKEND_DIR) && GOOS=windows GOARCH=arm64 go generate ./...
+	cd $(BACKEND_DIR) && GOOS=windows GOARCH=arm64 CGO_ENABLED=1 go build \
+		-ldflags="$(LDFLAGS)" -o ../$(DIST_DIR)/netpanel-windows-arm64.exe .
+
 ## build-darwin-amd64: 构建 macOS amd64
 build-darwin-amd64:
 	@mkdir -p $(DIST_DIR)
@@ -116,7 +124,7 @@ build-darwin-arm64:
 		-ldflags="$(LDFLAGS)" -o ../$(DIST_DIR)/netpanel-darwin-arm64 .
 
 ## build-all: 构建所有平台（需要先构建前端）
-build-all: build-frontend build-linux-amd64 build-linux-arm64 build-windows-amd64 build-darwin-amd64 build-darwin-arm64
+build-all: build-frontend build-linux-amd64 build-linux-arm64 build-windows-amd64 build-windows-arm64 build-darwin-amd64 build-darwin-arm64
 	@echo ">>> 所有平台构建完成:"
 	@ls -lh $(DIST_DIR)/
 

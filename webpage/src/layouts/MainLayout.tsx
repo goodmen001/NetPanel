@@ -9,6 +9,7 @@ import {
     BugOutlined,
     ClockCircleOutlined,
     CloudServerOutlined,
+    ClusterOutlined,
     ControlOutlined,
     DashboardOutlined,
     DatabaseOutlined,
@@ -16,6 +17,7 @@ import {
     FireOutlined,
     FolderOpenOutlined,
     GlobalOutlined,
+    HistoryOutlined,
     KeyOutlined,
     LinkOutlined,
     LogoutOutlined,
@@ -109,6 +111,19 @@ const MainLayout: React.FC = () => {
                 {key: 'nps/server', icon: <CloudServerOutlined/>, label: t('menu.npsServer')},
                 {key: 'easytier/client', icon: <ApiOutlined/>, label: t('menu.easytierClient')},
                 {key: 'easytier/server', icon: <CloudServerOutlined/>, label: t('menu.easytierServer')},
+                {key: 'wireguard', icon: <SafetyOutlined/>, label: t('menu.wireguard')},
+            ],
+        },
+        // ── 节点管理 ──
+        {
+            key: 'mesh',
+            icon: <ClusterOutlined/>,
+            label: t('menu.meshManagement'),
+            children: [
+                {key: 'mesh/nodes', icon: <ClusterOutlined/>, label: t('menu.meshNodes')},
+                {key: 'mesh/tunnels', icon: <SwapOutlined/>, label: t('menu.meshTunnels')},
+                {key: 'mesh/topology', icon: <ApartmentOutlined/>, label: t('menu.meshTopology')},
+                {key: 'mesh/events', icon: <HistoryOutlined/>, label: t('menu.meshEvents')},
             ],
         },
         // ── 网页服务 ──
@@ -494,7 +509,8 @@ const MainLayout: React.FC = () => {
 
 function getOpenKeys(pathname: string): string[] {
     if (pathname.startsWith('/port-forward') || pathname.startsWith('/stun') || pathname.startsWith('/frp')) return ['port-mapping']
-    if (pathname.startsWith('/nps') || pathname.startsWith('/easytier')) return ['network']
+    if (pathname.startsWith('/nps') || pathname.startsWith('/easytier') || pathname.startsWith('/wireguard')) return ['network']
+    if (pathname.startsWith('/mesh')) return ['mesh']
     if (pathname.startsWith('/ddns') || pathname.startsWith('/caddy')) return ['web-service']
     if (pathname.startsWith('/ipdb') || pathname.startsWith('/access') || pathname.startsWith('/security')) return ['security']
     if (pathname.startsWith('/dnsmasq') || pathname.startsWith('/wol') || pathname.startsWith('/storage') || pathname.startsWith('/cron')) return ['intranet']

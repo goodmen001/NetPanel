@@ -205,6 +205,11 @@ func (m *Manager) buildServerConfig(site *model.CaddySite, route map[string]inte
 	serverCfg := map[string]interface{}{
 		"listen": []string{listenAddr},
 		"routes": []interface{}{route},
+		// 禁用自动 HTTPS 重定向，避免 Caddy 尝试监听 80 端口
+		// （80 端口在 Windows 上通常被占用或需要管理员权限）
+		"automatic_https": map[string]interface{}{
+			"disable": true,
+		},
 	}
 
 	// TLS 配置

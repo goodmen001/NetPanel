@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/portforward"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -53,6 +55,7 @@ func (h *PortForwardHandler) Create(c *gin.Context) {
 			h.log.Warnf("端口转发 [%d] 自动启动失败: %v", rule.ID, err)
 		}
 	}
+logger.WriteLog("info", "portforward", fmt.Sprintf("创建端口转发规则 [%d] %s:%d -> %s:%d", rule.ID, rule.ListenIP, rule.ListenPort, rule.TargetAddress, rule.TargetPort))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": rule, "message": "创建成功"})
 }
 
@@ -86,6 +89,7 @@ func (h *PortForwardHandler) Update(c *gin.Context) {
 		}
 	}
 
+	logger.WriteLog("info", "portforward", fmt.Sprintf("修改端口转发规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
@@ -97,6 +101,7 @@ func (h *PortForwardHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	logger.WriteLog("info", "portforward", fmt.Sprintf("删除端口转发规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -108,6 +113,7 @@ func (h *PortForwardHandler) Start(c *gin.Context) {
 		return
 	}
 	h.db.Model(&model.PortForwardRule{}).Where("id = ?", id).Update("enable", true)
+	logger.WriteLog("info", "portforward", fmt.Sprintf("启动端口转发规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
@@ -116,6 +122,7 @@ func (h *PortForwardHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.Stop(uint(id))
 	h.db.Model(&model.PortForwardRule{}).Where("id = ?", id).Update("enable", false)
+	logger.WriteLog("info", "portforward", fmt.Sprintf("停止端口转发规则 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 

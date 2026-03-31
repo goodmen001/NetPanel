@@ -2,6 +2,7 @@ package access
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -13,11 +14,26 @@ import (
 	"gorm.io/gorm"
 )
 
+// resolvedRule 预解析后的访问控制规则（包含从 IPDB 解析出的 IP 列表）
+type resolvedRule struct {
+	model.AccessRule
+	// 合并后的 IP 列表（手动输入 + IPDB 条目）
+	AllIPs []string
+	// 绑定的站点域名/端口列表（用于匹配请求）
+	BindSites []siteMatch
+}
+
+// siteMatch 站点匹配信息
+type siteMatch struct {
+	Domain string
+	Port   int
+}
+
 // Manager 访问控制管理器
 type Manager struct {
 	db           *gorm.DB
 	log          *logrus.Logger
-	rules        []model.AccessRule
+	rules        []resolvedRule
 	mu           sync.RWMutex
 	// excludePaths 不受访问控制影响的路径前缀（可通过 SetExcludePaths 配置）
 	excludePaths []string
@@ -45,8 +61,55 @@ func (m *Manager) SetExcludePaths(paths []string) {
 func (m *Manager) loadRules() {
 	var rules []model.AccessRule
 	m.db.Where("enable = ?", true).Find(&rules)
+
+	resolved := make([]resolvedRule, 0, len(rules))
+	for _, rule := range rules {
+		r := resolvedRule{AccessRule: rule}
+
+		// 1. 解析手动输入的 IP 列表
+		var manualIPs []string
+		if rule.IPList != "" {
+			json.Unmarshal([]byte(rule.IPList), &manualIPs)
+		}
+
+		// 2. 从 IPDB 条目获取 IP/CIDR
+		var ipdbIPs []string
+		if rule.BindIPDBIDs != "" {
+			var ipdbIDs []uint
+			if err := json.Unmarshal([]byte(rule.BindIPDBIDs), &ipdbIDs); err == nil && len(ipdbIDs) > 0 {
+				var entries []model.IPDBEntry
+				m.db.Where("id IN ?", ipdbIDs).Find(&entries)
+				for _, e := range entries {
+					if e.CIDR != "" {
+						ipdbIPs = append(ipdbIPs, e.CIDR)
+					}
+				}
+			}
+		}
+
+		// 3. 合并所有 IP
+		r.AllIPs = append(manualIPs, ipdbIPs...)
+
+		// 4. 解析绑定的站点
+		if rule.BindSiteIDs != "" {
+			var siteIDs []uint
+			if err := json.Unmarshal([]byte(rule.BindSiteIDs), &siteIDs); err == nil && len(siteIDs) > 0 {
+				var sites []model.CaddySite
+				m.db.Where("id IN ?", siteIDs).Find(&sites)
+				for _, s := range sites {
+					r.BindSites = append(r.BindSites, siteMatch{
+						Domain: s.Domain,
+						Port:   s.Port,
+					})
+				}
+			}
+		}
+
+		resolved = append(resolved, r)
+	}
+
 	m.mu.Lock()
-	m.rules = rules
+	m.rules = resolved
 	m.mu.Unlock()
 }
 
@@ -75,6 +138,7 @@ func (m *Manager) GinMiddleware() gin.HandlerFunc {
 		}
 
 		clientIP := getClientIP(c.Request)
+		requestHost := c.Request.Host // 包含域名和端口
 
 		m.mu.RLock()
 		rules := m.rules
@@ -85,10 +149,15 @@ func (m *Manager) GinMiddleware() gin.HandlerFunc {
 				continue
 			}
 
-			var ipList []string
-			json.Unmarshal([]byte(rule.IPList), &ipList)
+			// 如果绑定了站点，检查当前请求是否匹配绑定的站点
+			if len(rule.BindSites) > 0 {
+				if !matchRequestSite(requestHost, rule.BindSites) {
+					// 当前请求不属于绑定的站点，跳过此规则
+					continue
+				}
+			}
 
-			matched := matchIP(clientIP, ipList)
+			matched := matchIP(clientIP, rule.AllIPs)
 
 			switch rule.Mode {
 			case "blacklist":
@@ -110,6 +179,30 @@ func (m *Manager) GinMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// matchRequestSite 检查请求的 Host 是否匹配绑定的站点列表
+func matchRequestSite(requestHost string, sites []siteMatch) bool {
+	// 解析请求的域名和端口
+	host, port, err := net.SplitHostPort(requestHost)
+	if err != nil {
+		// 没有端口的情况
+		host = requestHost
+		port = ""
+	}
+
+	for _, site := range sites {
+		// 域名匹配（忽略大小写）
+		if site.Domain != "" && !strings.EqualFold(host, site.Domain) {
+			continue
+		}
+		// 端口匹配
+		if site.Port > 0 && port != "" && port != fmt.Sprintf("%d", site.Port) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // getClientIP 获取客户端真实 IP

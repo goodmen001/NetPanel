@@ -31,11 +31,13 @@ import (
 	"github.com/netpanel/netpanel/service/easytier"
 	"github.com/netpanel/netpanel/service/firewall"
 	"github.com/netpanel/netpanel/service/frp"
+	"github.com/netpanel/netpanel/service/meshnode"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/netpanel/netpanel/service/portforward"
 	"github.com/netpanel/netpanel/service/storage"
 	"github.com/netpanel/netpanel/service/stun"
 	"github.com/netpanel/netpanel/service/syslog"
+	"github.com/netpanel/netpanel/service/wireguard"
 	"github.com/netpanel/netpanel/service/wol"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -187,6 +189,8 @@ func startServer() *http.Server {
 	logCert := logger.NewDBLogger(log, "cert")
 	logCallback := logger.NewDBLogger(log, "callback")
 	logFirewall := logger.NewDBLogger(log, "firewall")
+	logWireguard := logger.NewDBLogger(log, "wireguard")
+	logMeshNode := logger.NewDBLogger(log, "meshnode")
 
 	// 初始化各服务管理器（使用带 DB Hook 的专属 logger）
 	portforwardMgr := portforward.NewManager(db, logPortforward)
@@ -196,14 +200,18 @@ func startServer() *http.Server {
 	easytierMgr := easytier.NewManager(db, logEasytier, *dataDir)
 	ddnsMgr := ddns.NewManager(db, logDdns)
 	caddyMgr := caddy.NewManager(db, logCaddy, *dataDir)
-	cronMgr := cron.NewManager(db, logCron)
+	wolMgr := wol.NewManager(db, logWol)
+	certMgr := cert.NewManager(db, logCert, *dataDir)
+	cronMgr := cron.NewManager(db, logCron, certMgr, ddnsMgr, wolMgr)
 	storageMgr := storage.NewManager(db, logStorage, *dataDir)
 	accessMgr := access.NewManager(db, logAccess)
 	dnsmasqMgr := dnsmasq.NewManager(db, logDnsmasq)
-	wolMgr := wol.NewManager(db, logWol)
-	certMgr := cert.NewManager(db, logCert, *dataDir)
 	callbackMgr := callback.NewManager(db, logCallback)
 	firewallMgr := firewall.NewManager(db, logFirewall)
+	wireguardMgr := wireguard.NewManager(db, logWireguard, *dataDir)
+	meshNodeMgr := meshnode.NewManager(db, logMeshNode)
+
+	wireguardMgr.StartAll()
 
 	// 非管理员时：将数据库中所有 EasyTier 客户端/服务端的 no_tun 强制置为 true
 	if !isAdmin {
@@ -223,6 +231,7 @@ func startServer() *http.Server {
 	dnsmasqMgr.StartAll()
 	certMgr.StartAll()
 	callbackMgr.Start()
+	meshNodeMgr.Start()
 
 	// 设置 Gin 模式
 	if cfg.Debug {
@@ -247,6 +256,8 @@ func startServer() *http.Server {
 		StorageMgr:     storageMgr,
 		AccessMgr:      accessMgr,
 		FirewallMgr:    firewallMgr,
+		WireguardMgr:   wireguardMgr,
+		MeshNodeMgr:    meshNodeMgr,
 		DnsmasqMgr:     dnsmasqMgr,
 		WolMgr:         wolMgr,
 		CertMgr:        certMgr,
@@ -301,7 +312,7 @@ func startServer() *http.Server {
 
 	// 注册停止回调（用于 service 模式的优雅关闭）
 	registerStopHandlers(log, portforwardMgr, stunMgr, frpMgr, npsMgr,
-		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr)
+		easytierMgr, ddnsMgr, caddyMgr, cronMgr, storageMgr, dnsmasqMgr, callbackMgr, wireguardMgr, meshNodeMgr)
 
 	return srv
 }
@@ -360,6 +371,8 @@ func registerStopHandlers(
 	storageMgr interface{ StopAll() },
 	dnsmasqMgr interface{ StopAll() },
 	callbackMgr interface{ Stop() },
+	wireguardMgr interface{ StopAll() },
+	meshNodeMgr interface{ Stop() },
 ) {
 	stopAllFn = func() {
 		log.Info("正在停止所有服务...")
@@ -374,6 +387,8 @@ func registerStopHandlers(
 		storageMgr.StopAll()
 		dnsmasqMgr.StopAll()
 		callbackMgr.Stop()
+		wireguardMgr.StopAll()
+		meshNodeMgr.Stop()
 		log.Info("所有服务已停止")
 	}
 }

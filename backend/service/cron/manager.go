@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/service/cert"
+	"github.com/netpanel/netpanel/service/ddns"
+	"github.com/netpanel/netpanel/service/wol"
 	"github.com/robfig/cron/v3"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -17,17 +20,20 @@ import (
 
 // Manager 计划任务管理器
 type Manager struct {
-	db      *gorm.DB
-	log     *logrus.Logger
-	cron    *cron.Cron
+	db       *gorm.DB
+	log      *logrus.Logger
+	cron     *cron.Cron
 	entryIDs sync.Map // map[uint]cron.EntryID
-	mu      sync.Mutex
+	mu       sync.Mutex
+	certMgr  *cert.Manager
+	ddnsMgr  *ddns.Manager
+	wolMgr   *wol.Manager
 }
 
-func NewManager(db *gorm.DB, log *logrus.Logger) *Manager {
+func NewManager(db *gorm.DB, log *logrus.Logger, certMgr *cert.Manager, ddnsMgr *ddns.Manager, wolMgr *wol.Manager) *Manager {
 	c := cron.New(cron.WithSeconds())
 	c.Start()
-	return &Manager{db: db, log: log, cron: c}
+	return &Manager{db: db, log: log, cron: c, certMgr: certMgr, ddnsMgr: ddnsMgr, wolMgr: wolMgr}
 }
 
 func (m *Manager) StartAll() {
@@ -93,6 +99,12 @@ func (m *Manager) executeTask(id uint) {
 		result, execErr = m.runShell(task.Command)
 	case "http":
 		result, execErr = m.runHTTP(task.HTTPURL, task.HTTPMethod, task.HTTPBody)
+	case "renew_cert":
+		result, execErr = m.runRenewCert(task.TargetID)
+	case "update_ddns":
+		result, execErr = m.runUpdateDDNS(task.TargetID)
+	case "wol":
+		result, execErr = m.runWOL(task.TargetID)
 	default:
 		result = "未知任务类型"
 	}
@@ -142,4 +154,58 @@ func (m *Manager) runHTTP(url, method, body string) (string, error) {
 	}
 	defer resp.Body.Close()
 	return fmt.Sprintf("HTTP %d", resp.StatusCode), nil
+}
+
+// runRenewCert 续签 SSL 证书
+func (m *Manager) runRenewCert(targetID uint) (string, error) {
+	if m.certMgr == nil {
+		return "", fmt.Errorf("证书管理器未初始化")
+	}
+	if targetID == 0 {
+		return "", fmt.Errorf("未指定证书 ID")
+	}
+	var certRecord model.DomainCert
+	if err := m.db.First(&certRecord, targetID).Error; err != nil {
+		return "", fmt.Errorf("证书不存在(ID=%d): %w", targetID, err)
+	}
+	if err := m.certMgr.Apply(targetID); err != nil {
+		return "", fmt.Errorf("证书续签失败: %w", err)
+	}
+	return fmt.Sprintf("证书 [%s] 续签成功", certRecord.Name), nil
+}
+
+// runUpdateDDNS 更新 DDNS 记录
+func (m *Manager) runUpdateDDNS(targetID uint) (string, error) {
+	if m.ddnsMgr == nil {
+		return "", fmt.Errorf("DDNS 管理器未初始化")
+	}
+	if targetID == 0 {
+		return "", fmt.Errorf("未指定 DDNS 任务 ID")
+	}
+	var ddnsTask model.DDNSTask
+	if err := m.db.First(&ddnsTask, targetID).Error; err != nil {
+		return "", fmt.Errorf("DDNS 任务不存在(ID=%d): %w", targetID, err)
+	}
+	if err := m.ddnsMgr.RunNow(targetID); err != nil {
+		return "", fmt.Errorf("DDNS 更新失败: %w", err)
+	}
+	return fmt.Sprintf("DDNS 任务 [%s] 已触发更新", ddnsTask.Name), nil
+}
+
+// runWOL 执行网络唤醒
+func (m *Manager) runWOL(targetID uint) (string, error) {
+	if m.wolMgr == nil {
+		return "", fmt.Errorf("WOL 管理器未初始化")
+	}
+	if targetID == 0 {
+		return "", fmt.Errorf("未指定 WOL 设备 ID")
+	}
+	var device model.WolDevice
+	if err := m.db.First(&device, targetID).Error; err != nil {
+		return "", fmt.Errorf("WOL 设备不存在(ID=%d): %w", targetID, err)
+	}
+	if err := m.wolMgr.Wake(targetID); err != nil {
+		return "", fmt.Errorf("网络唤醒失败: %w", err)
+	}
+	return fmt.Sprintf("WOL 设备 [%s] (MAC: %s) 唤醒包已发送", device.Name, device.MACAddress), nil
 }

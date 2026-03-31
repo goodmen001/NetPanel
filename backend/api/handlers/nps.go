@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/nps"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -40,6 +42,7 @@ func (h *NpsServerHandler) Create(c *gin.Context) {
 	}
 	cfg.Status = "stopped"
 	h.db.Create(&cfg)
+	logger.WriteLog("info", "nps", fmt.Sprintf("创建NPS服务端 [%d]", cfg.ID))
 	if cfg.Enable {
 		if err := h.mgr.StartServer(cfg.ID); err != nil {
 			h.log.Warnf("[NPS服务端] 创建后启动失败: %v", err)
@@ -58,6 +61,7 @@ func (h *NpsServerHandler) Update(c *gin.Context) {
 	h.mgr.StopServer(uint(id))
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "nps", fmt.Sprintf("修改NPS服务端 [%d]", id))
 	if req.Enable {
 		if err := h.mgr.StartServer(uint(id)); err != nil {
 			h.log.Warnf("[NPS服务端] 更新后启动失败: %v", err)
@@ -70,6 +74,7 @@ func (h *NpsServerHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.StopServer(uint(id))
 	h.db.Delete(&model.NpsServerConfig{}, id)
+	logger.WriteLog("info", "nps", fmt.Sprintf("删除NPS服务端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -80,6 +85,7 @@ func (h *NpsServerHandler) Start(c *gin.Context) {
 		return
 	}
 	h.db.Model(&model.NpsServerConfig{}).Where("id = ?", id).Update("enable", true)
+	logger.WriteLog("info", "nps", fmt.Sprintf("启动NPS服务端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
@@ -87,6 +93,7 @@ func (h *NpsServerHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.StopServer(uint(id))
 	h.db.Model(&model.NpsServerConfig{}).Where("id = ?", id).Update("enable", false)
+	logger.WriteLog("info", "nps", fmt.Sprintf("停止NPS服务端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 
@@ -119,6 +126,7 @@ func (h *NpsClientHandler) Create(c *gin.Context) {
 	}
 	cfg.Status = "stopped"
 	h.db.Create(&cfg)
+	logger.WriteLog("info", "nps", fmt.Sprintf("创建NPS客户端 [%d]", cfg.ID))
 	if cfg.Enable {
 		if err := h.mgr.StartClient(cfg.ID); err != nil {
 			h.log.Warnf("[NPS客户端] 创建后启动失败: %v", err)
@@ -137,6 +145,7 @@ func (h *NpsClientHandler) Update(c *gin.Context) {
 	h.mgr.StopClient(uint(id))
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "nps", fmt.Sprintf("修改NPS客户端 [%d]", id))
 	if req.Enable {
 		if err := h.mgr.StartClient(uint(id)); err != nil {
 			h.log.Warnf("[NPS客户端] 更新后启动失败: %v", err)
@@ -149,6 +158,7 @@ func (h *NpsClientHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.StopClient(uint(id))
 	h.db.Delete(&model.NpsClientConfig{}, id)
+	logger.WriteLog("info", "nps", fmt.Sprintf("删除NPS客户端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -159,6 +169,7 @@ func (h *NpsClientHandler) Start(c *gin.Context) {
 		return
 	}
 	h.db.Model(&model.NpsClientConfig{}).Where("id = ?", id).Update("enable", true)
+	logger.WriteLog("info", "nps", fmt.Sprintf("启动NPS客户端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
@@ -166,6 +177,7 @@ func (h *NpsClientHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.StopClient(uint(id))
 	h.db.Model(&model.NpsClientConfig{}).Where("id = ?", id).Update("enable", false)
+	logger.WriteLog("info", "nps", fmt.Sprintf("停止NPS客户端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 
@@ -187,6 +199,7 @@ func (h *NpsClientHandler) CreateTunnel(c *gin.Context) {
 	}
 	tunnel.NpsClientID = uint(clientID)
 	h.db.Create(&tunnel)
+	logger.WriteLog("info", "nps", fmt.Sprintf("创建NPS隧道 [%d] 客户端=%d", tunnel.ID, clientID))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": tunnel, "message": "创建成功"})
 }
 
@@ -199,11 +212,13 @@ func (h *NpsClientHandler) UpdateTunnel(c *gin.Context) {
 	}
 	req.ID = uint(tid)
 	h.db.Save(&req)
+	logger.WriteLog("info", "nps", fmt.Sprintf("修改NPS隧道 [%d]", tid))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": req, "message": "更新成功"})
 }
 
 func (h *NpsClientHandler) DeleteTunnel(c *gin.Context) {
 	tid, _ := strconv.ParseUint(c.Param("tid"), 10, 64)
 	h.db.Delete(&model.NpsTunnel{}, tid)
+	logger.WriteLog("info", "nps", fmt.Sprintf("删除NPS隧道 [%d]", tid))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }

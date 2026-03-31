@@ -18,7 +18,7 @@ import {
   easytierClientApi, easytierServerApi,
   ddnsApi, caddyApi,
   cronApi, storageApi, accessApi, wolApi,
-  firewallApi,
+  firewallApi, wireguardApi,
 } from '../api'
 import { useAppStore } from '../store/appStore'
 
@@ -473,6 +473,7 @@ const Dashboard: React.FC = () => {
         npsServerApi.list(),
         easytierClientApi.list(),
         easytierServerApi.list(),
+        wireguardApi.list(),
         ddnsApi.list(),
         caddyApi.list(),
         cronApi.list(),
@@ -521,6 +522,7 @@ const Dashboard: React.FC = () => {
         { name: 'NPS服务端', type: 'nps_server' },
         { name: 'ET客户端', type: 'easytier_client' },
         { name: 'ET服务端', type: 'easytier_server' },
+        { name: 'WireGuard', type: 'wireguard' },
         { name: '动态域名', type: 'ddns' },
         { name: '网站服务', type: 'caddy' },
         { name: '计划任务', type: 'cron' },

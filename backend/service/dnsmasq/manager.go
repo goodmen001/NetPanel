@@ -29,7 +29,7 @@ func NewManager(db *gorm.DB, log *logrus.Logger) *Manager {
 
 func (m *Manager) StartAll() {
 	var cfg model.DnsmasqConfig
-	if err := m.db.First(&cfg).Error; err == nil && cfg.Enable {
+	if err := m.db.Order("id desc").First(&cfg).Error; err == nil && cfg.Enable {
 		if err := m.Start(); err != nil {
 			m.log.Errorf("DNS 服务启动失败: %v", err)
 		}
@@ -44,7 +44,7 @@ func (m *Manager) Start() error {
 	m.Stop()
 
 	var cfg model.DnsmasqConfig
-	if err := m.db.First(&cfg).Error; err != nil {
+	if err := m.db.Order("id desc").First(&cfg).Error; err != nil {
 		return fmt.Errorf("DNS 配置不存在: %w", err)
 	}
 
@@ -147,7 +147,7 @@ func (m *Manager) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 // forwardToUpstream 转发到上游 DNS 服务器
 func (m *Manager) forwardToUpstream(w dns.ResponseWriter, r *dns.Msg) {
 	var cfg model.DnsmasqConfig
-	m.db.First(&cfg)
+	m.db.Order("id desc").First(&cfg)
 
 	var upstreams []string
 	if cfg.UpstreamDNS != "" {

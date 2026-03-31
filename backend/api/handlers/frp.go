@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/frp"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -42,6 +43,7 @@ func (h *FrpcHandler) Create(c *gin.Context) {
 	}
 	cfg.Status = "stopped"
 	h.db.Create(&cfg)
+	logger.WriteLog("info", "frp", fmt.Sprintf("创建FRP客户端 [%d] %s", cfg.ID, cfg.Name))
 	if cfg.Enable {
 		h.mgr.StartClient(cfg.ID)
 	}
@@ -58,6 +60,7 @@ func (h *FrpcHandler) Update(c *gin.Context) {
 	h.mgr.StopClient(uint(id))
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "frp", fmt.Sprintf("修改FRP客户端 [%d] %s", id, req.Name))
 	if req.Enable {
 		h.mgr.StartClient(uint(id))
 	}
@@ -69,6 +72,7 @@ func (h *FrpcHandler) Delete(c *gin.Context) {
 	h.mgr.StopClient(uint(id))
 	h.db.Where("frpc_id = ?", id).Delete(&model.FrpcProxy{})
 	h.db.Delete(&model.FrpcConfig{}, id)
+	logger.WriteLog("info", "frp", fmt.Sprintf("删除FRP客户端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -79,6 +83,7 @@ func (h *FrpcHandler) Start(c *gin.Context) {
 		return
 	}
 	h.db.Model(&model.FrpcConfig{}).Where("id = ?", id).Update("enable", true)
+	logger.WriteLog("info", "frp", fmt.Sprintf("启动FRP客户端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
@@ -86,6 +91,7 @@ func (h *FrpcHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.StopClient(uint(id))
 	h.db.Model(&model.FrpcConfig{}).Where("id = ?", id).Update("enable", false)
+	logger.WriteLog("info", "frp", fmt.Sprintf("停止FRP客户端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 
@@ -96,6 +102,7 @@ func (h *FrpcHandler) Restart(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	logger.WriteLog("info", "frp", fmt.Sprintf("重启FRP客户端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已重启"})
 }
 
@@ -115,6 +122,7 @@ func (h *FrpcHandler) CreateProxy(c *gin.Context) {
 	}
 	proxy.FrpcID = uint(id)
 	h.db.Create(&proxy)
+	logger.WriteLog("info", "frp", fmt.Sprintf("创建FRP代理 [%d] 客户端[%d] %s", proxy.ID, id, proxy.Name))
 	// 重启客户端以应用新代理
 	h.mgr.RestartClient(uint(id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": proxy, "message": "创建成功"})
@@ -131,6 +139,7 @@ func (h *FrpcHandler) UpdateProxy(c *gin.Context) {
 	proxy.ID = uint(pid)
 	proxy.FrpcID = uint(id)
 	h.db.Save(&proxy)
+	logger.WriteLog("info", "frp", fmt.Sprintf("修改FRP代理 [%d] 客户端[%d] %s", pid, id, proxy.Name))
 	h.mgr.RestartClient(uint(id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": proxy, "message": "更新成功"})
 }
@@ -139,6 +148,7 @@ func (h *FrpcHandler) DeleteProxy(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	pid, _ := strconv.ParseUint(c.Param("pid"), 10, 64)
 	h.db.Delete(&model.FrpcProxy{}, pid)
+	logger.WriteLog("info", "frp", fmt.Sprintf("删除FRP代理 [%d] 客户端[%d]", pid, id))
 	h.mgr.RestartClient(uint(id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
@@ -172,6 +182,7 @@ func (h *FrpsHandler) Create(c *gin.Context) {
 	}
 	cfg.Status = "stopped"
 	h.db.Create(&cfg)
+	logger.WriteLog("info", "frp", fmt.Sprintf("创建FRP服务端 [%d] %s", cfg.ID, cfg.Name))
 	if cfg.Enable {
 		h.mgr.StartServer(cfg.ID)
 	}
@@ -188,6 +199,7 @@ func (h *FrpsHandler) Update(c *gin.Context) {
 	h.mgr.StopServer(uint(id))
 	req.ID = uint(id)
 	h.db.Save(&req)
+	logger.WriteLog("info", "frp", fmt.Sprintf("修改FRP服务端 [%d] %s", id, req.Name))
 	if req.Enable {
 		h.mgr.StartServer(uint(id))
 	}
@@ -198,6 +210,7 @@ func (h *FrpsHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.StopServer(uint(id))
 	h.db.Delete(&model.FrpsConfig{}, id)
+	logger.WriteLog("info", "frp", fmt.Sprintf("删除FRP服务端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
@@ -208,6 +221,7 @@ func (h *FrpsHandler) Start(c *gin.Context) {
 		return
 	}
 	h.db.Model(&model.FrpsConfig{}).Where("id = ?", id).Update("enable", true)
+	logger.WriteLog("info", "frp", fmt.Sprintf("启动FRP服务端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已启动"})
 }
 
@@ -215,6 +229,7 @@ func (h *FrpsHandler) Stop(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	h.mgr.StopServer(uint(id))
 	h.db.Model(&model.FrpsConfig{}).Where("id = ?", id).Update("enable", false)
+	logger.WriteLog("info", "frp", fmt.Sprintf("停止FRP服务端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
 }
 

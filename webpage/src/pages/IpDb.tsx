@@ -144,8 +144,25 @@ const EntryTab: React.FC = () => {
     {
       title: t('ipdb.cidr'),
       dataIndex: 'cidr',
-      width: 200,
-      render: (v: string) => <Text code copyable>{v}</Text>,
+      width: 280,
+      render: (v: string) => {
+        if (!v) return <Text type="secondary">-</Text>
+        const ips = v.split(',').map((s: string) => s.trim()).filter(Boolean)
+        if (ips.length <= 1) {
+          return <Text code copyable>{v}</Text>
+        }
+        // 多个 IP 时，显示前2个 + 数量徽标
+        return (
+          <Tooltip title={<div style={{ maxHeight: 300, overflow: 'auto', fontSize: 12 }}>{ips.map((ip: string, i: number) => <div key={i}>{ip}</div>)}</div>}>
+            <span>
+              <Text code>{ips[0]}</Text>
+              <Text code style={{ marginLeft: 4 }}>{ips[1]}</Text>
+              {ips.length > 2 && <Tag color="blue" style={{ marginLeft: 4, cursor: 'pointer' }}>+{ips.length - 2}</Tag>}
+              <Badge count={ips.length} style={{ backgroundColor: '#1677ff', marginLeft: 6, fontSize: 11 }} size="small" />
+            </span>
+          </Tooltip>
+        )
+      },
     },
     {
       title: t('ipdb.location'),
@@ -281,8 +298,10 @@ const EntryTab: React.FC = () => {
         width={480} destroyOnHidden
       >
         <Form form={editForm} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="cidr" label={t('ipdb.cidr')} rules={[{ required: true, message: '请输入 IP 或 CIDR' }]}>
-            <Input placeholder="192.168.1.0/24 或 1.2.3.4" />
+          <Form.Item name="cidr" label={t('ipdb.cidr')} rules={[{ required: true, message: '请输入 IP 或 CIDR' }]}
+            extra="多个 IP/CIDR 用英文逗号分隔"
+          >
+            <TextArea rows={3} placeholder="192.168.1.0/24,1.2.3.4,10.0.0.0/8" style={{ fontFamily: "'MapleMono', monospace", fontSize: 13 }} />
           </Form.Item>
           <Form.Item name="location" label={t('ipdb.location')}>
             <Input placeholder="中国-北京" />

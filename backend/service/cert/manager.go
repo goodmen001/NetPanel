@@ -5,7 +5,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -16,16 +19,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-acme/lego/v4/acme"
+	"github.com/go-acme/lego/v4/acme/api"
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
-	"github.com/go-acme/lego/v4/challenge/dns01"
-	"github.com/go-acme/lego/v4/challenge/http01"
 	"github.com/go-acme/lego/v4/lego"
-	"github.com/go-acme/lego/v4/providers/dns/alidns"
-	"github.com/go-acme/lego/v4/providers/dns/cloudflare"
-	"github.com/go-acme/lego/v4/providers/dns/dnspod"
 	"github.com/go-acme/lego/v4/registration"
 	"github.com/netpanel/netpanel/model"
+	"github.com/netpanel/netpanel/service/ddns"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -41,6 +42,27 @@ func (u *acmeUser) GetEmail() string                        { return u.Email }
 func (u *acmeUser) GetRegistration() *registration.Resource { return u.Registration }
 func (u *acmeUser) GetPrivateKey() crypto.PrivateKey        { return u.key }
 
+// acmeFlowData ACME 流程内部数据（序列化为 JSON 存储在 DomainCert.AcmeData 中）
+type acmeFlowData struct {
+	// 账号私钥（PEM 编码）
+	PrivateKeyPEM string `json:"private_key_pem"`
+	// ACME 注册 URI
+	RegistrationURI string `json:"registration_uri"`
+	// 订单 URL
+	OrderURL string `json:"order_url"`
+	// 挑战信息：domain -> {token, keyAuth, challengeURL, fqdn, value}
+	Challenges map[string]*challengeInfo `json:"challenges"`
+}
+
+type challengeInfo struct {
+	Token        string `json:"token"`
+	KeyAuth      string `json:"key_auth"`
+	ChallengeURL string `json:"challenge_url"`
+	// DNS-01 验证记录
+	FQDN  string `json:"fqdn"`
+	Value string `json:"value"`
+}
+
 // Manager 域名证书管理器
 type Manager struct {
 	db      *gorm.DB
@@ -53,9 +75,10 @@ func NewManager(db *gorm.DB, log *logrus.Logger, dataDir string) *Manager {
 	return &Manager{db: db, log: log, dataDir: dataDir}
 }
 
-// StartAll 启动自动续期检查
+// StartAll 启动自动续期检查和 ACME 流程定时器
 func (m *Manager) StartAll() {
 	go m.autoRenewLoop()
+	go m.acmeFlowLoop()
 }
 
 // autoRenewLoop 每 12 小时检查一次证书到期情况
@@ -71,31 +94,86 @@ func (m *Manager) autoRenewLoop() {
 	}
 }
 
+// acmeFlowLoop 每 30 秒检查一次是否有待执行的 ACME 流程步骤
+func (m *Manager) acmeFlowLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	// 启动时先检查一次
+	m.processAcmeFlowTasks()
+
+	for range ticker.C {
+		m.processAcmeFlowTasks()
+	}
+}
+
+// processAcmeFlowTasks 处理所有待执行的 ACME 流程任务
+func (m *Manager) processAcmeFlowTasks() {
+	var certs []model.DomainCert
+	now := time.Now()
+	// 查找所有有待执行操作且时间已到的证书
+	m.db.Where("acme_next_action IS NOT NULL AND acme_next_action <= ? AND status IN ?",
+		now, []string{"order_created", "dns_set", "validating"}).Find(&certs)
+
+	for _, c := range certs {
+		switch c.Status {
+		case "order_created":
+			// 订单已创建，自动设置 DNS
+			m.log.Infof("[证书][%s] 自动执行：设置 DNS 解析", c.Name)
+			if err := m.StepSetDNS(c.ID); err != nil {
+				m.log.Errorf("[证书][%s] 设置 DNS 失败: %v", c.Name, err)
+			}
+		case "dns_set":
+			// DNS 已设置，自动提交验证
+			m.log.Infof("[证书][%s] 自动执行：提交验证", c.Name)
+			if err := m.StepValidate(c.ID); err != nil {
+				m.log.Errorf("[证书][%s] 提交验证失败: %v", c.Name, err)
+			}
+		case "validating":
+			// 验证中，自动获取证书
+			m.log.Infof("[证书][%s] 自动执行：获取证书", c.Name)
+			if err := m.StepObtain(c.ID); err != nil {
+				m.log.Errorf("[证书][%s] 获取证书失败: %v", c.Name, err)
+			}
+		}
+	}
+}
+
 // checkAndRenew 检查并自动续期即将到期的证书
 func (m *Manager) checkAndRenew() {
 	var certs []model.DomainCert
-	m.db.Where("auto_renew = ? AND status = ?", true, "valid").Find(&certs)
+	m.db.Where("auto_renew = ? AND status = ? AND cert_type = ?", true, "valid", "acme").Find(&certs)
 
 	for _, c := range certs {
 		if c.ExpireAt == nil || c.ExpireAt.IsZero() {
 			continue
 		}
-		// 提前 N 天续期（默认 7 天）
 		renewDays := c.RenewBeforeDays
 		if renewDays <= 0 {
 			renewDays = 7
 		}
 		if time.Until(*c.ExpireAt) < time.Duration(renewDays)*24*time.Hour {
 			m.log.Infof("[证书][%s] 即将到期（%s），提前 %d 天自动续期", c.Name, c.ExpireAt.Format("2006-01-02"), renewDays)
-			if err := m.Apply(c.ID); err != nil {
+			if err := m.StartApply(c.ID); err != nil {
 				m.log.Errorf("[证书][%s] 自动续期失败: %v", c.Name, err)
 			}
 		}
 	}
 }
 
-// Apply 申请/续期证书（ACME DNS-01）
-func (m *Manager) Apply(id uint) error {
+// ===== ACME 分步流程 =====
+
+// StartApply 开始申请证书（一键自动流程：创建订单 → 立即设置DNS → 2分钟后提交验证 → 获取证书）
+func (m *Manager) StartApply(id uint) error {
+	// 第一步：创建订单
+	if err := m.StepCreateOrder(id); err != nil {
+		return err
+	}
+	return nil
+}
+
+// StepCreateOrder 步骤1：创建 ACME 订单，获取挑战信息
+func (m *Manager) StepCreateOrder(id uint) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -104,13 +182,18 @@ func (m *Manager) Apply(id uint) error {
 		return fmt.Errorf("证书配置不存在: %w", err)
 	}
 
-	// 更新状态为申请中
-	m.db.Model(&model.DomainCert{}).Where("id = ?", id).Updates(map[string]interface{}{
+	if cert.CertType == "manual" {
+		return fmt.Errorf("手动上传证书不支持 ACME 申请")
+	}
+
+	// 更新状态
+	m.updateCert(id, map[string]interface{}{
 		"status":     "applying",
+		"acme_step":  1,
 		"last_error": "",
 	})
 
-	m.log.Infof("[证书][%s] 开始申请证书，CA: %s，验证方式: %s", cert.Name, cert.CA, cert.ChallengeType)
+	m.log.Infof("[证书][%s] 步骤1：创建 ACME 订单，CA: %s", cert.Name, cert.CA)
 
 	// 解析域名列表
 	var domains []string
@@ -124,17 +207,8 @@ func (m *Manager) Apply(id uint) error {
 		return m.setError(id, fmt.Errorf("生成私钥失败: %w", err))
 	}
 
-	// 优先使用关联证书账号的邮箱，其次使用证书自身邮箱，最后使用默认值
-	email := ""
-	var eabKid, eabHmacKey string
-	if cert.CertAccountID > 0 && cert.CertAccount.ID > 0 {
-		email = cert.CertAccount.Email
-		eabKid = cert.CertAccount.EabKid
-		eabHmacKey = cert.CertAccount.EabHmacKey
-	}
-	if email == "" {
-		email = "admin@netpanel.local"
-	}
+	// 获取邮箱和 EAB 信息
+	email, eabKid, eabHmacKey := m.getAccountInfo(&cert)
 
 	user := &acmeUser{
 		Email: email,
@@ -145,84 +219,318 @@ func (m *Manager) Apply(id uint) error {
 	config := lego.NewConfig(user)
 	config.Certificate.KeyType = certcrypto.RSA2048
 	config.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+	config.CADirURL = m.getCADirURL(cert.CA)
 
-	// 选择 CA 并确定是否需要 EAB
-	var needEAB bool
-	switch strings.ToLower(cert.CA) {
-	case "zerossl":
-		config.CADirURL = "https://acme.zerossl.com/v2/DV90"
-		needEAB = true
-	case "buypass":
-		config.CADirURL = "https://api.buypass.com/acme/directory"
-	case "google":
-		config.CADirURL = "https://dv.acme-v02.api.pki.goog/directory"
-		needEAB = true
-	default: // letsencrypt
-		config.CADirURL = lego.LEDirectoryProduction
-	}
-
-	client, err := lego.NewClient(config)
+	// 创建 ACME 核心客户端
+	core, err := api.New(config.HTTPClient, config.UserAgent, config.CADirURL, "", privateKey)
 	if err != nil {
 		return m.setError(id, fmt.Errorf("创建 ACME 客户端失败: %w", err))
 	}
 
-	// 配置 DNS 验证
-	if cert.ChallengeType == "dns" || cert.ChallengeType == "" {
-		// 获取 DNS 账号信息
-		accessID, accessSecret, provider, err := m.getDNSCredentials(&cert)
-		if err != nil {
-			return m.setError(id, err)
-		}
-
-		dnsProvider, err := m.createDNSProvider(provider, accessID, accessSecret)
-		if err != nil {
-			return m.setError(id, err)
-		}
-
-		if err := client.Challenge.SetDNS01Provider(dnsProvider,
-			dns01.AddRecursiveNameservers([]string{"8.8.8.8:53", "1.1.1.1:53"}),
-		); err != nil {
-			return m.setError(id, fmt.Errorf("设置 DNS 验证失败: %w", err))
-		}
-	} else {
-		// HTTP-01 验证（需要 80 端口）
-		httpProvider := http01.NewProviderServer("", "80")
-		if err := client.Challenge.SetHTTP01Provider(httpProvider); err != nil {
-			return m.setError(id, fmt.Errorf("设置 HTTP 验证失败: %w", err))
-		}
-	}
-
-	// 注册账号（需要 EAB 的 CA 使用 EAB 注册）
-	if needEAB {
-		if eabKid == "" || eabHmacKey == "" {
-			return m.setError(id, fmt.Errorf("CA %s 需要 EAB 凭据，请在证书账号中配置 EAB Key ID 和 HMAC Key", cert.CA))
-		}
-		reg, err := client.Registration.RegisterWithExternalAccountBinding(registration.RegisterEABOptions{
-			TermsOfServiceAgreed: true,
-			Kid:                  eabKid,
-			HmacEncoded:          eabHmacKey,
-		})
-		if err != nil {
-			return m.setError(id, fmt.Errorf("ACME EAB 账号注册失败: %w", err))
-		}
-		user.Registration = reg
-	} else {
-		reg, err := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
-		if err != nil {
-			return m.setError(id, fmt.Errorf("ACME 账号注册失败: %w", err))
-		}
-		user.Registration = reg
-	}
-
-	// 申请证书
-	request := certificate.ObtainRequest{
-		Domains: domains,
-		Bundle:  true,
-	}
-
-	certificates, err := client.Certificate.Obtain(request)
+	// 注册账号
+	reg, err := m.registerAccount(core, user, cert.CA, eabKid, eabHmacKey)
 	if err != nil {
-		return m.setError(id, fmt.Errorf("证书申请失败: %w", err))
+		return m.setError(id, fmt.Errorf("ACME 账号注册失败: %w", err))
+	}
+	user.Registration = reg
+
+	// 创建订单
+	var identifiers []acme.Identifier
+	for _, d := range domains {
+		identifiers = append(identifiers, acme.Identifier{Type: "dns", Value: d})
+	}
+
+	order, err := core.Orders.New(identifiers)
+	if err != nil {
+		return m.setError(id, fmt.Errorf("创建 ACME 订单失败: %w", err))
+	}
+
+	// 获取挑战信息
+	flowData := &acmeFlowData{
+		PrivateKeyPEM:   encodeECPrivateKey(privateKey),
+		RegistrationURI: reg.URI,
+		OrderURL:        order.Location,
+		Challenges:      make(map[string]*challengeInfo),
+	}
+
+	var dnsRecords []string
+	var dnsValues []string
+
+	for _, authzURL := range order.Authorizations {
+		authz, err := core.Authorizations.Get(authzURL)
+		if err != nil {
+			return m.setError(id, fmt.Errorf("获取授权信息失败: %w", err))
+		}
+
+		domain := authz.Identifier.Value
+
+		// 查找 DNS-01 挑战
+		for _, chal := range authz.Challenges {
+			if chal.Type == "dns-01" {
+				keyAuth, err := core.GetKeyAuthorization(chal.Token)
+				if err != nil {
+					return m.setError(id, fmt.Errorf("获取 KeyAuthorization 失败: %w", err))
+				}
+
+				// 计算 DNS TXT 记录值
+				dnsValue := dns01KeyAuthDigest(keyAuth)
+				fqdn := fmt.Sprintf("_acme-challenge.%s", domain)
+
+				flowData.Challenges[domain] = &challengeInfo{
+					Token:        chal.Token,
+					KeyAuth:      keyAuth,
+					ChallengeURL: chal.URL,
+					FQDN:         fqdn,
+					Value:        dnsValue,
+				}
+
+				dnsRecords = append(dnsRecords, fqdn)
+				dnsValues = append(dnsValues, dnsValue)
+				break
+			}
+		}
+	}
+
+	if len(flowData.Challenges) == 0 {
+		return m.setError(id, fmt.Errorf("未找到 DNS-01 挑战信息"))
+	}
+
+	// 序列化流程数据
+	flowDataJSON, _ := json.Marshal(flowData)
+
+	// 设置下一步操作时间（立即执行设置 DNS）
+	nextAction := time.Now().Add(5 * time.Second)
+
+	m.updateCert(id, map[string]interface{}{
+		"status":           "order_created",
+		"acme_step":        1,
+		"acme_data":        string(flowDataJSON),
+		"acme_dns_record":  strings.Join(dnsRecords, "\n"),
+		"acme_dns_value":   strings.Join(dnsValues, "\n"),
+		"acme_next_action": nextAction,
+		"last_error":       "",
+	})
+
+	m.log.Infof("[证书][%s] 订单创建成功，需要设置 %d 条 DNS 记录", cert.Name, len(flowData.Challenges))
+	return nil
+}
+
+// StepSetDNS 步骤2：设置 DNS 解析记录
+func (m *Manager) StepSetDNS(id uint) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var cert model.DomainCert
+	if err := m.db.Preload("DomainAccount").First(&cert, id).Error; err != nil {
+		return fmt.Errorf("证书配置不存在: %w", err)
+	}
+
+	if cert.Status != "order_created" && cert.Status != "applying" {
+		return fmt.Errorf("当前状态 %s 不允许设置 DNS", cert.Status)
+	}
+
+	m.log.Infof("[证书][%s] 步骤2：设置 DNS 解析记录", cert.Name)
+
+	// 解析流程数据
+	var flowData acmeFlowData
+	if err := json.Unmarshal([]byte(cert.AcmeData), &flowData); err != nil {
+		return m.setError(id, fmt.Errorf("解析 ACME 流程数据失败: %w", err))
+	}
+
+	// 获取 DNS 账号信息
+	accessID, accessSecret, provider, err := m.getDNSCredentials(&cert)
+	if err != nil {
+		return m.setError(id, err)
+	}
+
+	// 使用 DDNS provider 设置 DNS TXT 记录
+	for domain, chal := range flowData.Challenges {
+		m.log.Infof("[证书][%s] 设置 DNS TXT 记录: %s -> %s", cert.Name, chal.FQDN, chal.Value)
+
+		if err := m.setDNSTxtRecord(provider, accessID, accessSecret, domain, chal.Value); err != nil {
+			return m.setError(id, fmt.Errorf("设置 DNS 记录失败 (%s): %w", domain, err))
+		}
+	}
+
+	// 设置下一步操作时间（2 分钟后提交验证，等待 DNS 传播）
+	nextAction := time.Now().Add(2 * time.Minute)
+
+	m.updateCert(id, map[string]interface{}{
+		"status":           "dns_set",
+		"acme_step":        2,
+		"acme_next_action": nextAction,
+		"last_error":       "",
+	})
+
+	m.log.Infof("[证书][%s] DNS 记录设置完成，将在 2 分钟后提交验证", cert.Name)
+	return nil
+}
+
+// StepValidate 步骤3：提交验证
+func (m *Manager) StepValidate(id uint) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var cert model.DomainCert
+	if err := m.db.Preload("CertAccount").First(&cert, id).Error; err != nil {
+		return fmt.Errorf("证书配置不存在: %w", err)
+	}
+
+	if cert.Status != "dns_set" {
+		return fmt.Errorf("当前状态 %s 不允许提交验证", cert.Status)
+	}
+
+	m.log.Infof("[证书][%s] 步骤3：提交验证", cert.Name)
+
+	// 解析流程数据
+	var flowData acmeFlowData
+	if err := json.Unmarshal([]byte(cert.AcmeData), &flowData); err != nil {
+		return m.setError(id, fmt.Errorf("解析 ACME 流程数据失败: %w", err))
+	}
+
+	// 恢复私钥
+	privateKey, err := decodeECPrivateKey(flowData.PrivateKeyPEM)
+	if err != nil {
+		return m.setError(id, fmt.Errorf("恢复私钥失败: %w", err))
+	}
+
+	// 重建 ACME 客户端
+	email, _, _ := m.getAccountInfo(&cert)
+	user := &acmeUser{Email: email, key: privateKey}
+
+	config := lego.NewConfig(user)
+	config.Certificate.KeyType = certcrypto.RSA2048
+	config.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+	config.CADirURL = m.getCADirURL(cert.CA)
+
+	core, err := api.New(config.HTTPClient, config.UserAgent, config.CADirURL, "", privateKey)
+	if err != nil {
+		return m.setError(id, fmt.Errorf("创建 ACME 客户端失败: %w", err))
+	}
+
+	// 提交所有挑战验证
+	for domain, chal := range flowData.Challenges {
+		m.log.Infof("[证书][%s] 提交验证: %s", cert.Name, domain)
+
+		// 通知 CA 验证挑战
+		if err := core.Challenges.New(chal.ChallengeURL); err != nil {
+			return m.setError(id, fmt.Errorf("提交验证失败 (%s): %w", domain, err))
+		}
+	}
+
+	// 设置下一步操作时间（30 秒后获取证书）
+	nextAction := time.Now().Add(30 * time.Second)
+
+	m.updateCert(id, map[string]interface{}{
+		"status":           "validating",
+		"acme_step":        3,
+		"acme_next_action": nextAction,
+		"last_error":       "",
+	})
+
+	m.log.Infof("[证书][%s] 验证已提交，等待 CA 验证完成", cert.Name)
+	return nil
+}
+
+// StepObtain 步骤4：获取证书
+func (m *Manager) StepObtain(id uint) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var cert model.DomainCert
+	if err := m.db.Preload("CertAccount").Preload("DomainAccount").First(&cert, id).Error; err != nil {
+		return fmt.Errorf("证书配置不存在: %w", err)
+	}
+
+	if cert.Status != "validating" {
+		return fmt.Errorf("当前状态 %s 不允许获取证书", cert.Status)
+	}
+
+	m.log.Infof("[证书][%s] 步骤4：获取证书", cert.Name)
+
+	// 解析流程数据
+	var flowData acmeFlowData
+	if err := json.Unmarshal([]byte(cert.AcmeData), &flowData); err != nil {
+		return m.setError(id, fmt.Errorf("解析 ACME 流程数据失败: %w", err))
+	}
+
+	// 恢复私钥
+	privateKey, err := decodeECPrivateKey(flowData.PrivateKeyPEM)
+	if err != nil {
+		return m.setError(id, fmt.Errorf("恢复私钥失败: %w", err))
+	}
+
+	// 重建 ACME 客户端
+	email, _, _ := m.getAccountInfo(&cert)
+	user := &acmeUser{Email: email, key: privateKey}
+
+	config := lego.NewConfig(user)
+	config.Certificate.KeyType = certcrypto.RSA2048
+	config.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+	config.CADirURL = m.getCADirURL(cert.CA)
+
+	core, err := api.New(config.HTTPClient, config.UserAgent, config.CADirURL, "", privateKey)
+	if err != nil {
+		return m.setError(id, fmt.Errorf("创建 ACME 客户端失败: %w", err))
+	}
+
+	// 检查订单状态
+	order, err := core.Orders.Get(flowData.OrderURL)
+	if err != nil {
+		return m.setError(id, fmt.Errorf("获取订单状态失败: %w", err))
+	}
+
+	// 如果订单还在 pending 状态，说明验证还没完成
+	if order.Status == "pending" || order.Status == "processing" {
+		// 重新安排 30 秒后再试
+		nextAction := time.Now().Add(30 * time.Second)
+		m.updateCert(id, map[string]interface{}{
+			"acme_next_action": nextAction,
+		})
+		m.log.Infof("[证书][%s] 订单状态: %s，30 秒后重试", cert.Name, order.Status)
+		return nil
+	}
+
+	if order.Status == "invalid" {
+		// 检查授权详情获取失败原因
+		errMsg := "订单验证失败"
+		for _, authzURL := range order.Authorizations {
+			authz, aErr := core.Authorizations.Get(authzURL)
+			if aErr != nil {
+				continue
+			}
+			if authz.Status == "invalid" {
+				for _, chal := range authz.Challenges {
+					if chal.Status == "invalid" && chal.Error != nil {
+						errMsg = fmt.Sprintf("域名 %s 验证失败: %s", authz.Identifier.Value, chal.Error.Detail)
+						break
+					}
+				}
+			}
+		}
+		return m.setError(id, fmt.Errorf(errMsg))
+	}
+
+	if order.Status != "ready" && order.Status != "valid" {
+		// 重新安排 30 秒后再试
+		nextAction := time.Now().Add(30 * time.Second)
+		m.updateCert(id, map[string]interface{}{
+			"acme_next_action": nextAction,
+		})
+		m.log.Infof("[证书][%s] 订单状态: %s，30 秒后重试", cert.Name, order.Status)
+		return nil
+	}
+
+	// 解析域名列表
+	var domains []string
+	if err := json.Unmarshal([]byte(cert.Domains), &domains); err != nil || len(domains) == 0 {
+		return m.setError(id, fmt.Errorf("域名列表解析失败: %w", err))
+	}
+
+	// 使用 core API 直接 finalize 订单并获取证书
+	certificates, err := m.finalizeOrder(core, order, domains)
+	if err != nil {
+		return m.setError(id, fmt.Errorf("获取证书失败: %w", err))
 	}
 
 	// 保存证书文件
@@ -242,60 +550,130 @@ func (m *Manager) Apply(id uint) error {
 	}
 
 	// 解析证书到期时间
-	expireAt, err := parseCertExpiry(certificates.Certificate)
-	if err != nil {
-		m.log.Warnf("[证书][%s] 解析到期时间失败: %v", cert.Name, err)
-	}
+	expireAt, _ := parseCertExpiry(certificates.Certificate)
+
+	// 清理 DNS TXT 记录
+	go m.cleanupDNSRecords(&cert, &flowData)
 
 	// 更新数据库
-	updates := map[string]interface{}{
-		"cert_file":  certFile,
-		"key_file":   keyFile,
-		"status":     "valid",
-		"last_error": "",
-	}
-	if expireAt != nil {
-		updates["expire_at"] = expireAt
-	}
-	m.db.Model(&model.DomainCert{}).Where("id = ?", id).Updates(updates)
+	m.updateCert(id, map[string]interface{}{
+		"cert_file":        certFile,
+		"key_file":         keyFile,
+		"status":           "valid",
+		"acme_step":        4,
+		"acme_data":        "",
+		"acme_dns_record":  "",
+		"acme_dns_value":   "",
+		"acme_next_action": nil,
+		"last_error":       "",
+		"expire_at":        expireAt,
+	})
 
-	m.log.Infof("[证书][%s] 证书申请成功，到期时间: %v", cert.Name, expireAt)
+	m.log.Infof("[证书][%s] 证书获取成功，到期时间: %v", cert.Name, expireAt)
 	return nil
 }
 
-// GetStatus 获取证书状态
-func (m *Manager) GetStatus(id uint) string {
-	var cert model.DomainCert
-	if err := m.db.First(&cert, id).Error; err != nil {
-		return "unknown"
-	}
-	if cert.Status == "applying" {
-		return "applying"
-	}
-	if cert.ExpireAt == nil || cert.ExpireAt.IsZero() {
-		return "not_issued"
-	}
-	if time.Until(*cert.ExpireAt) < 0 {
-		return "expired"
-	}
-	if time.Until(*cert.ExpireAt) < 30*24*time.Hour {
-		return "expiring_soon"
-	}
-	return "valid"
+// Apply 兼容旧接口：一键申请证书（自动执行全部流程）
+func (m *Manager) Apply(id uint) error {
+	return m.StartApply(id)
 }
 
-// setError 设置错误状态并返回错误
-func (m *Manager) setError(id uint, err error) error {
-	m.db.Model(&model.DomainCert{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status":     "error",
-		"last_error": err.Error(),
-	})
-	return err
+// GetStatus 获取证书状态
+func (m *Manager) GetStatus(id uint) map[string]interface{} {
+	var cert model.DomainCert
+	if err := m.db.First(&cert, id).Error; err != nil {
+		return map[string]interface{}{"status": "unknown"}
+	}
+
+	result := map[string]interface{}{
+		"status":          cert.Status,
+		"acme_step":       cert.AcmeStep,
+		"acme_dns_record": cert.AcmeDnsRecord,
+		"acme_dns_value":  cert.AcmeDnsValue,
+		"last_error":      cert.LastError,
+	}
+
+	if cert.AcmeNextAction != nil {
+		result["acme_next_action"] = cert.AcmeNextAction
+	}
+	if cert.ExpireAt != nil {
+		result["expire_at"] = cert.ExpireAt
+	}
+
+	return result
+}
+
+// ===== 辅助方法 =====
+
+// getAccountInfo 获取邮箱和 EAB 信息
+func (m *Manager) getAccountInfo(cert *model.DomainCert) (email, eabKid, eabHmacKey string) {
+	if cert.CertAccountID > 0 && cert.CertAccount.ID > 0 {
+		email = cert.CertAccount.Email
+		eabKid = cert.CertAccount.EabKid
+		eabHmacKey = cert.CertAccount.EabHmacKey
+	}
+	if email == "" {
+		email = "admin@netpanel.local"
+	}
+	return
+}
+
+// getCADirURL 获取 CA 目录 URL
+func (m *Manager) getCADirURL(ca string) string {
+	switch strings.ToLower(ca) {
+	case "zerossl":
+		return "https://acme.zerossl.com/v2/DV90"
+	case "buypass":
+		return "https://api.buypass.com/acme/directory"
+	case "google":
+		return "https://dv.acme-v02.api.pki.goog/directory"
+	default:
+		return lego.LEDirectoryProduction
+	}
+}
+
+// registerAccount 注册 ACME 账号
+func (m *Manager) registerAccount(core *api.Core, user *acmeUser, ca, eabKid, eabHmacKey string) (*registration.Resource, error) {
+	needEAB := strings.ToLower(ca) == "zerossl" || strings.ToLower(ca) == "google"
+
+	if needEAB {
+		if eabKid == "" || eabHmacKey == "" {
+			return nil, fmt.Errorf("CA %s 需要 EAB 凭据，请在证书账号中配置 EAB Key ID 和 HMAC Key", ca)
+		}
+	}
+
+	// 使用 lego 的高级客户端注册
+	config := lego.NewConfig(user)
+	config.Certificate.KeyType = certcrypto.RSA2048
+	config.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+	config.CADirURL = m.getCADirURL(ca)
+
+	client, err := lego.NewClient(config)
+	if err != nil {
+		return nil, fmt.Errorf("创建注册客户端失败: %w", err)
+	}
+
+	if needEAB {
+		reg, err := client.Registration.RegisterWithExternalAccountBinding(registration.RegisterEABOptions{
+			TermsOfServiceAgreed: true,
+			Kid:                  eabKid,
+			HmacEncoded:          eabHmacKey,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return reg, nil
+	}
+
+	reg, err := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
+	if err != nil {
+		return nil, err
+	}
+	return reg, nil
 }
 
 // getDNSCredentials 获取 DNS 验证凭据
 func (m *Manager) getDNSCredentials(cert *model.DomainCert) (accessID, accessSecret, provider string, err error) {
-	// 优先使用关联的域名账号
 	if cert.DomainAccountID > 0 {
 		var account model.DomainAccount
 		if dbErr := m.db.First(&account, cert.DomainAccountID).Error; dbErr == nil {
@@ -305,43 +683,157 @@ func (m *Manager) getDNSCredentials(cert *model.DomainCert) (accessID, accessSec
 	return "", "", "", fmt.Errorf("未配置 DNS 账号，请关联域名账号")
 }
 
-// dnsProvider DNS 验证 provider 接口
-type dnsProvider interface {
-	Present(domain, token, keyAuth string) error
-	CleanUp(domain, token, keyAuth string) error
+// setDNSTxtRecord 使用 DDNS provider 设置 DNS TXT 记录
+func (m *Manager) setDNSTxtRecord(providerName, accessID, accessSecret, domain, value string) error {
+	provider := ddns.NewProvider(providerName, accessID, accessSecret)
+	if provider == nil {
+		return fmt.Errorf("不支持的 DNS 服务商: %s", providerName)
+	}
+
+	// 使用 DDNS provider 的 UpdateRecord 方法设置 TXT 记录
+	// _acme-challenge.domain -> TXT -> value
+	acmeDomain := fmt.Sprintf("_acme-challenge.%s", domain)
+	return provider.UpdateRecord(acmeDomain, "TXT", value, "60")
 }
 
-// createDNSProvider 根据服务商名称创建 lego DNS provider
-func (m *Manager) createDNSProvider(providerName, accessID, accessSecret string) (dnsProvider, error) {
-	switch strings.ToLower(providerName) {
-	case "alidns", "aliyun":
-		os.Setenv("ALICLOUD_ACCESS_KEY", accessID)
-		os.Setenv("ALICLOUD_SECRET_KEY", accessSecret)
-		p, err := alidns.NewDNSProvider()
-		if err != nil {
-			return nil, fmt.Errorf("创建阿里云 DNS provider 失败: %w", err)
-		}
-		return p, nil
-
-	case "cloudflare", "cf":
-		os.Setenv("CF_DNS_API_TOKEN", accessSecret)
-		p, err := cloudflare.NewDNSProvider()
-		if err != nil {
-			return nil, fmt.Errorf("创建 Cloudflare DNS provider 失败: %w", err)
-		}
-		return p, nil
-
-	case "dnspod":
-		os.Setenv("DNSPOD_API_KEY", accessID+","+accessSecret)
-		p, err := dnspod.NewDNSProvider()
-		if err != nil {
-			return nil, fmt.Errorf("创建 DNSPod DNS provider 失败: %w", err)
-		}
-		return p, nil
-
-	default:
-		return nil, fmt.Errorf("不支持的 DNS 服务商: %s（支持: alidns/cloudflare/dnspod）", providerName)
+// cleanupDNSRecords 清理 ACME DNS 验证记录
+func (m *Manager) cleanupDNSRecords(cert *model.DomainCert, flowData *acmeFlowData) {
+	accessID, accessSecret, providerName, err := m.getDNSCredentials(cert)
+	if err != nil {
+		m.log.Warnf("[证书][%s] 清理 DNS 记录失败（无法获取凭据）: %v", cert.Name, err)
+		return
 	}
+
+	for domain := range flowData.Challenges {
+		acmeDomain := fmt.Sprintf("_acme-challenge.%s", domain)
+		m.log.Infof("[证书][%s] 清理 DNS TXT 记录: %s", cert.Name, acmeDomain)
+		// 尝试删除，忽略错误
+		provider := ddns.NewProvider(providerName, accessID, accessSecret)
+		if provider != nil {
+			// 设置为空值来"清理"（部分服务商不支持删除，设置空值也可以）
+			_ = provider.UpdateRecord(acmeDomain, "TXT", "cleaned", "60")
+		}
+	}
+}
+
+// finalizeOrder 使用 core API 完成订单并获取证书
+func (m *Manager) finalizeOrder(core *api.Core, order acme.ExtendedOrder, domains []string) (*certificate.Resource, error) {
+	// 生成证书私钥（RSA 2048）
+	certKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("生成证书私钥失败: %w", err)
+	}
+
+	// 创建 CSR
+	csr, err := generateCSR(certKey, domains)
+	if err != nil {
+		return nil, fmt.Errorf("生成 CSR 失败: %w", err)
+	}
+
+	// Finalize 订单
+	orderResp, err := core.Orders.UpdateForCSR(order.Finalize, csr)
+	if err != nil {
+		return nil, fmt.Errorf("finalize 订单失败: %w", err)
+	}
+
+	// 等待订单完成
+	for i := 0; i < 10; i++ {
+		if orderResp.Status == "valid" {
+			break
+		}
+		if orderResp.Status == "invalid" {
+			return nil, fmt.Errorf("订单状态无效: %s", orderResp.Status)
+		}
+		time.Sleep(3 * time.Second)
+		orderResp, err = core.Orders.Get(order.Location)
+		if err != nil {
+			return nil, fmt.Errorf("获取订单状态失败: %w", err)
+		}
+	}
+
+	if orderResp.Certificate == "" {
+		return nil, fmt.Errorf("订单完成但未返回证书 URL")
+	}
+
+	// 下载证书
+	certData, err := core.Certificates.Get(orderResp.Certificate, true)
+	if err != nil {
+		return nil, fmt.Errorf("下载证书失败: %w", err)
+	}
+
+	// 编码私钥为 PEM
+	keyDER, err := x509.MarshalECPrivateKey(certKey)
+	if err != nil {
+		return nil, fmt.Errorf("编码私钥失败: %w", err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+
+	return &certificate.Resource{
+		Domain:      domains[0],
+		Certificate: certData,
+		PrivateKey:  keyPEM,
+	}, nil
+}
+
+// generateCSR 生成证书签名请求
+func generateCSR(privateKey *ecdsa.PrivateKey, domains []string) ([]byte, error) {
+	template := &x509.CertificateRequest{
+		Subject: pkix.Name{
+			CommonName: domains[0],
+		},
+	}
+	if len(domains) > 1 {
+		template.DNSNames = domains
+	} else {
+		template.DNSNames = domains
+	}
+	return x509.CreateCertificateRequest(rand.Reader, template, privateKey)
+}
+
+// updateCert 更新证书记录
+func (m *Manager) updateCert(id uint, updates map[string]interface{}) {
+	m.db.Model(&model.DomainCert{}).Where("id = ?", id).Updates(updates)
+}
+
+// setError 设置错误状态并返回错误
+func (m *Manager) setError(id uint, err error) error {
+	m.updateCert(id, map[string]interface{}{
+		"status":           "error",
+		"last_error":       err.Error(),
+		"acme_next_action": nil,
+	})
+	return err
+}
+
+// ===== 工具函数 =====
+
+// dns01KeyAuthDigest 计算 DNS-01 验证的 TXT 记录值
+// 参考 RFC 8555: base64url(SHA-256(keyAuthorization))
+func dns01KeyAuthDigest(keyAuth string) string {
+	hash := sha256.Sum256([]byte(keyAuth))
+	return base64.RawURLEncoding.EncodeToString(hash[:])
+}
+
+// encodeECPrivateKey 将 ECDSA 私钥编码为 PEM 字符串
+func encodeECPrivateKey(key *ecdsa.PrivateKey) string {
+	derBytes, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return ""
+	}
+	block := &pem.Block{
+		Type:  "EC PRIVATE KEY",
+		Bytes: derBytes,
+	}
+	return string(pem.EncodeToMemory(block))
+}
+
+// decodeECPrivateKey 从 PEM 字符串解码 ECDSA 私钥
+func decodeECPrivateKey(pemStr string) (*ecdsa.PrivateKey, error) {
+	block, _ := pem.Decode([]byte(pemStr))
+	if block == nil {
+		return nil, fmt.Errorf("无法解析 PEM 数据")
+	}
+	return x509.ParseECPrivateKey(block.Bytes)
 }
 
 // parseCertExpiry 从 PEM 证书中解析到期时间
@@ -357,3 +849,10 @@ func parseCertExpiry(certPEM []byte) (*time.Time, error) {
 	expiry := x509Cert.NotAfter
 	return &expiry, nil
 }
+
+// noopDNSProvider 空 DNS provider（DNS 记录已手动设置时使用）
+type noopDNSProvider struct{}
+
+func (p *noopDNSProvider) Present(domain, token, keyAuth string) error { return nil }
+func (p *noopDNSProvider) CleanUp(domain, token, keyAuth string) error { return nil }
+func (p *noopDNSProvider) Timeout() (timeout, interval time.Duration)  { return 1 * time.Second, 1 * time.Second }

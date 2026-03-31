@@ -240,12 +240,18 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/domain/cert-accounts/:id/verify", certAccountHandler.Verify)
 
 	// 域名证书
-	certHandler := handlers.NewCertHandler(opts.DB, opts.Log, opts.Config)
+	certHandler := handlers.NewCertHandler(opts.DB, opts.Log, opts.Config, opts.CertMgr)
 	auth.GET("/domain/certs", certHandler.List)
 	auth.POST("/domain/certs", certHandler.Create)
 	auth.PUT("/domain/certs/:id", certHandler.Update)
 	auth.DELETE("/domain/certs/:id", certHandler.Delete)
-	auth.POST("/domain/certs/:id/apply", certHandler.Renew)
+	auth.POST("/domain/certs/:id/apply", certHandler.Apply)
+	auth.POST("/domain/certs/:id/renew", certHandler.Renew)
+	auth.GET("/domain/certs/:id/status", certHandler.GetStatus)
+	auth.POST("/domain/certs/:id/step/create-order", certHandler.StepCreateOrder)
+	auth.POST("/domain/certs/:id/step/set-dns", certHandler.StepSetDNS)
+	auth.POST("/domain/certs/:id/step/validate", certHandler.StepValidate)
+	auth.POST("/domain/certs/:id/step/obtain", certHandler.StepObtain)
 
 	// 域名解析（子域名解析记录，按域名ID查询）
 	drHandler := handlers.NewDomainRecordHandler(opts.DB, opts.Log)
@@ -265,6 +271,9 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/dnsmasq/records", dnsmasqHandler.CreateRecord)
 	auth.PUT("/dnsmasq/records/:id", dnsmasqHandler.UpdateRecord)
 	auth.DELETE("/dnsmasq/records/:id", dnsmasqHandler.DeleteRecord)
+
+	// 注入 DNS 解析记录同步回调到计划任务管理器
+	opts.CronMgr.SetSyncDNSRecordFunc(diHandler.DoSyncFromProvider)
 
 	// 计划任务
 	cronHandler := handlers.NewCronHandler(opts.DB, opts.Log, opts.CronMgr)

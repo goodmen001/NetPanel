@@ -1,13 +1,15 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import {
   Table, Button, Space, Modal, Form, Input, Select, Switch,
   Popconfirm, message, Typography, Tag, Tooltip, Progress, Row, Col,
-  InputNumber, Radio, Checkbox, Alert,
+  InputNumber, Radio, Checkbox, Alert, Steps, Descriptions, Card,
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SyncOutlined,
   SafetyCertificateOutlined, DownloadOutlined, MinusCircleOutlined,
-  ExclamationCircleOutlined,
+  ExclamationCircleOutlined, CheckCircleOutlined, ClockCircleOutlined,
+  LoadingOutlined, CloseCircleOutlined, CloudServerOutlined,
+  GlobalOutlined, AuditOutlined, FileProtectOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { domainCertApi, domainAccountApi, certAccountApi, domainInfoApi } from '../api'
@@ -157,9 +159,18 @@ const DomainCert: React.FC = () => {
   const [editRecord, setEditRecord] = useState<any>(null)
   const [applyingIds, setApplyingIds] = useState<Set<number>>(new Set())
   const [parsingCert, setParsigCert] = useState(false)
-  // DNS 账号校验警告：{ domainName: string, missing: string[] }[]
+  // ACME 流程状态弹窗
+  const [statusModalOpen, setStatusModalOpen] = useState(false)
+  const [statusCert, setStatusCert] = useState<any>(null)
+  const [certStatus, setCertStatus] = useState<any>(null)
+  const [statusLoading, setStatusLoading] = useState(false)
+  const statusTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // DNS 账号校验警告
   const [dnsWarnings, setDnsWarnings] = useState<{ domain: string; missing: boolean }[]>([])
   const [form] = Form.useForm()
+
+  // 自动刷新定时器
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchData = async () => {
     setLoading(true)
@@ -178,10 +189,32 @@ const DomainCert: React.FC = () => {
   }
   useEffect(() => { fetchData() }, [])
 
-  // 校验当前表单中的域名是否已在 DNS 解析中添加（仅非通配符基础域名）
+  // 如果有正在进行中的证书，自动刷新列表
+  useEffect(() => {
+    const inProgress = data.some(d =>
+      ['applying', 'order_created', 'dns_set', 'validating'].includes(d.status)
+    )
+    if (inProgress && !autoRefreshRef.current) {
+      autoRefreshRef.current = setInterval(() => {
+        domainCertApi.list().then((res: any) => {
+          setData(res.data || [])
+        }).catch(() => {})
+      }, 10000) // 每 10 秒刷新
+    } else if (!inProgress && autoRefreshRef.current) {
+      clearInterval(autoRefreshRef.current)
+      autoRefreshRef.current = null
+    }
+    return () => {
+      if (autoRefreshRef.current) {
+        clearInterval(autoRefreshRef.current)
+        autoRefreshRef.current = null
+      }
+    }
+  }, [data])
+
+  // 校验当前表单中的域名是否已在 DNS 解析中添加
   const checkDnsWarnings = useCallback((entries: DomainEntry[], dnsAccountId?: number) => {
     if (!dnsAccountId) { setDnsWarnings([]); return }
-    // 过滤出该账号下的域名
     const accountDomains = domainInfoList
       .filter(d => d.account_id === dnsAccountId)
       .map(d => (d.name as string).toLowerCase())
@@ -226,7 +259,6 @@ const DomainCert: React.FC = () => {
 
   const handleSubmit = async () => {
     const values = await form.validateFields()
-    // 将 DomainEntry[] 序列化为 JSON 字符串
     if (Array.isArray(values.domains) && values.domains[0] && typeof values.domains[0] === 'object' && 'base' in values.domains[0]) {
       values.domains = JSON.stringify(entriesToDomains(values.domains as DomainEntry[]))
     } else if (typeof values.domains === 'string') {
@@ -246,8 +278,8 @@ const DomainCert: React.FC = () => {
     setApplyingIds(prev => new Set(prev).add(id))
     try {
       await domainCertApi.apply(id)
-      message.success('已触发证书申请，请稍后刷新查看结果')
-      setTimeout(fetchData, 3000)
+      message.success(t('domainCert.applySubmitted'))
+      setTimeout(fetchData, 2000)
     } finally {
       setApplyingIds(prev => { const s = new Set(prev); s.delete(id); return s })
     }
@@ -261,20 +293,135 @@ const DomainCert: React.FC = () => {
       const domains = await parseCertDomains(certPem)
       if (domains.length > 0) {
         form.setFieldsValue({ domains: domainsToEntries(domains) })
-        message.success(`已自动识别 ${domains.length} 个域名`)
+        message.success(t('domainCert.certContentParsed', { count: domains.length }))
       }
     } finally {
       setParsigCert(false)
     }
   }
 
+  // ===== ACME 流程状态弹窗 =====
+  const openStatusModal = async (record: any) => {
+    setStatusCert(record)
+    setStatusModalOpen(true)
+    setCertStatus(null)
+    await fetchCertStatus(record.id)
+    // 启动定时刷新
+    if (statusTimerRef.current) clearInterval(statusTimerRef.current)
+    statusTimerRef.current = setInterval(() => {
+      fetchCertStatus(record.id)
+    }, 5000)
+  }
+
+  const closeStatusModal = () => {
+    setStatusModalOpen(false)
+    setStatusCert(null)
+    setCertStatus(null)
+    if (statusTimerRef.current) {
+      clearInterval(statusTimerRef.current)
+      statusTimerRef.current = null
+    }
+  }
+
+  const fetchCertStatus = async (id: number) => {
+    setStatusLoading(true)
+    try {
+      const res: any = await domainCertApi.getStatus(id)
+      setCertStatus(res.data || {})
+      // 如果已完成或出错，停止刷新
+      if (['valid', 'error', 'pending', 'expired'].includes(res.data?.status)) {
+        if (statusTimerRef.current) {
+          clearInterval(statusTimerRef.current)
+          statusTimerRef.current = null
+        }
+        // 刷新列表
+        fetchData()
+      }
+    } finally {
+      setStatusLoading(false)
+    }
+  }
+
+  // 手动触发 ACME 步骤
+  const handleStep = async (id: number, step: string) => {
+    try {
+      switch (step) {
+        case 'create-order':
+          await domainCertApi.stepCreateOrder(id)
+          break
+        case 'set-dns':
+          await domainCertApi.stepSetDNS(id)
+          break
+        case 'validate':
+          await domainCertApi.stepValidate(id)
+          break
+        case 'obtain':
+          await domainCertApi.stepObtain(id)
+          break
+      }
+      message.success(t('domainCert.stepSubmitted'))
+      setTimeout(() => fetchCertStatus(id), 2000)
+      // 重新启动定时刷新
+      if (statusTimerRef.current) clearInterval(statusTimerRef.current)
+      statusTimerRef.current = setInterval(() => {
+        fetchCertStatus(id)
+      }, 5000)
+    } catch (e: any) {
+      message.error(e?.message || t('common.error'))
+    }
+  }
+
+  // 清理定时器
+  useEffect(() => {
+    return () => {
+      if (statusTimerRef.current) clearInterval(statusTimerRef.current)
+    }
+  }, [])
+
   const getExpireInfo = (expireAt: string) => {
-    if (!expireAt) return { tag: <Tag>未申请</Tag>, percent: 0 }
+    if (!expireAt) return { tag: <Tag>{t('domainCert.pending')}</Tag>, percent: 0 }
     const days = dayjs(expireAt).diff(dayjs(), 'day')
-    if (days < 0) return { tag: <Tag color="error">已过期</Tag>, percent: 0 }
-    if (days < 7) return { tag: <Tag color="error">{days}天后到期</Tag>, percent: Math.min(days / 90 * 100, 100) }
-    if (days < 30) return { tag: <Tag color="warning">{days}天后到期</Tag>, percent: Math.min(days / 90 * 100, 100) }
-    return { tag: <Tag color="success">{days}天后到期</Tag>, percent: Math.min(days / 90 * 100, 100) }
+    if (days < 0) return { tag: <Tag color="error">{t('domainCert.expired')}</Tag>, percent: 0 }
+    if (days < 7) return { tag: <Tag color="error">{days}{t('domainCert.daysLeft')}</Tag>, percent: Math.min(days / 90 * 100, 100) }
+    if (days < 30) return { tag: <Tag color="warning">{days}{t('domainCert.daysLeft')}</Tag>, percent: Math.min(days / 90 * 100, 100) }
+    return { tag: <Tag color="success">{days}{t('domainCert.daysLeft')}</Tag>, percent: Math.min(days / 90 * 100, 100) }
+  }
+
+  // 获取状态标签
+  const getStatusTag = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return <Tag icon={<ClockCircleOutlined />} color="default">{t('domainCert.statusPending')}</Tag>
+      case 'applying':
+      case 'order_created':
+        return <Tag icon={<LoadingOutlined />} color="processing">{t('domainCert.statusCreatingOrder')}</Tag>
+      case 'dns_set':
+        return <Tag icon={<LoadingOutlined />} color="processing">{t('domainCert.statusDnsSet')}</Tag>
+      case 'validating':
+        return <Tag icon={<LoadingOutlined />} color="processing">{t('domainCert.statusValidating')}</Tag>
+      case 'valid':
+        return <Tag icon={<CheckCircleOutlined />} color="success">{t('domainCert.statusValid')}</Tag>
+      case 'expired':
+        return <Tag icon={<CloseCircleOutlined />} color="error">{t('domainCert.statusExpired')}</Tag>
+      case 'error':
+        return <Tag icon={<CloseCircleOutlined />} color="error">{t('domainCert.statusError')}</Tag>
+      default:
+        return <Tag>{status || '-'}</Tag>
+    }
+  }
+
+  // 获取 ACME 步骤序号
+  const getAcmeStepIndex = (status: string, step: number): number => {
+    switch (status) {
+      case 'pending': return -1
+      case 'applying':
+      case 'order_created': return 0
+      case 'dns_set': return 1
+      case 'validating': return 2
+      case 'valid': return 4
+      case 'error': return step > 0 ? step - 1 : 0
+      default: return -1
+    }
   }
 
   const CA_COLOR: Record<string, string> = { letsencrypt: 'green', zerossl: 'blue', buypass: 'purple', google: 'red' }
@@ -288,7 +435,7 @@ const DomainCert: React.FC = () => {
           <Space>
             <SafetyCertificateOutlined style={{ color: '#1677ff' }} />
             <Text strong>{name}</Text>
-            {r.cert_type === 'manual' && <Tag color="orange" style={{ fontSize: 11 }}>手动</Tag>}
+            {r.cert_type === 'manual' && <Tag color="orange" style={{ fontSize: 11 }}>{t('domainCert.certTypeManual')}</Tag>}
           </Space>
           {r.remark && <div><Text type="secondary" style={{ fontSize: 12 }}>{r.remark}</Text></div>}
         </div>
@@ -306,18 +453,33 @@ const DomainCert: React.FC = () => {
     {
       title: t('domainCert.ca'), dataIndex: 'ca',
       render: (v: string, r: any) => {
-        if (r.cert_type === 'manual') return <Tag color="orange">手动上传</Tag>
+        if (r.cert_type === 'manual') return <Tag color="orange">{t('domainCert.certTypeManual')}</Tag>
         const certAcc = certAccounts.find(a => a.id === r.cert_account_id)
         return (
           <div>
             <Tag color={CA_COLOR[v] || 'blue'}>{CA_LABEL[v] || v || "Let's Encrypt"}</Tag>
-            {certAcc && <div><Text type="secondary" style={{ fontSize: 11 }}>账号: {certAcc.name}</Text></div>}
+            {certAcc && <div><Text type="secondary" style={{ fontSize: 11 }}>{t('domainCert.certAccount')}: {certAcc.name}</Text></div>}
           </div>
         )
       },
     },
     {
-      title: t('domainCert.expireAt'), dataIndex: 'expire_at', width: 200,
+      title: t('domainCert.status'), dataIndex: 'status', width: 150,
+      render: (status: string, r: any) => (
+        <div>
+          {getStatusTag(status)}
+          {r.cert_type === 'acme' && ['applying', 'order_created', 'dns_set', 'validating', 'error'].includes(status) && (
+            <div style={{ marginTop: 4 }}>
+              <Button type="link" size="small" style={{ padding: 0, fontSize: 12 }} onClick={() => openStatusModal(r)}>
+                {t('domainCert.viewProgress')}
+              </Button>
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: t('domainCert.expireAt'), dataIndex: 'expire_at', width: 180,
       render: (v: string) => {
         const { tag, percent } = getExpireInfo(v)
         return (
@@ -332,19 +494,30 @@ const DomainCert: React.FC = () => {
       title: t('domainCert.autoRenew'), dataIndex: 'auto_renew', width: 80,
       render: (v: boolean, r: any) => r.cert_type === 'manual'
         ? <Tag color="default">-</Tag>
-        : (v ? <Tag color="blue">自动</Tag> : <Tag>手动</Tag>),
+        : (v ? <Tag color="blue">{t('domainCert.autoRenewOn')}</Tag> : <Tag>{t('domainCert.autoRenewOff')}</Tag>),
     },
     {
-      title: t('common.action'), width: 180,
+      title: t('common.action'), width: 200,
       render: (_: any, r: any) => (
         <Space size={4}>
           {r.cert_type !== 'manual' && (
-            <Tooltip title={t('domainCert.renew')}>
-              <Button size="small" icon={<SyncOutlined />} loading={applyingIds.has(r.id)} onClick={() => handleApply(r.id)} />
-            </Tooltip>
+            <>
+              <Tooltip title={r.status === 'pending' ? t('domainCert.apply') : t('domainCert.renew')}>
+                <Button size="small" type={r.status === 'pending' ? 'primary' : 'default'}
+                  icon={<SyncOutlined />} loading={applyingIds.has(r.id)}
+                  onClick={() => handleApply(r.id)}
+                  disabled={['applying', 'order_created', 'dns_set', 'validating'].includes(r.status)}
+                />
+              </Tooltip>
+              {['applying', 'order_created', 'dns_set', 'validating', 'error', 'valid'].includes(r.status) && (
+                <Tooltip title={t('domainCert.viewProgress')}>
+                  <Button size="small" icon={<AuditOutlined />} onClick={() => openStatusModal(r)} />
+                </Tooltip>
+              )}
+            </>
           )}
           {r.cert_file && (
-            <Tooltip title="下载证书">
+            <Tooltip title={t('domainCert.downloadCert')}>
               <Button size="small" icon={<DownloadOutlined />}
                 onClick={() => window.open(`/api/v1/domain/certs/${r.id}/download`, '_blank')} />
             </Tooltip>
@@ -372,16 +545,164 @@ const DomainCert: React.FC = () => {
         showIcon
         icon={<ExclamationCircleOutlined />}
         style={{ marginBottom: 12 }}
-        message="以下域名尚未在 DNS 域名解析中添加，DNS-01 验证可能失败"
+        message={t('domainCert.dnsWarningTitle')}
         description={
           <Space wrap size={4}>
             {missing.map(w => <Tag key={w.domain} color="warning">{w.domain}</Tag>)}
             <Text type="secondary" style={{ fontSize: 11 }}>
-              请先在「DNS 域名解析」中添加对应域名，再申请证书
+              {t('domainCert.dnsWarningHint')}
             </Text>
           </Space>
         }
       />
+    )
+  }
+
+  // 渲染 ACME 流程状态弹窗内容
+  const renderStatusModal = () => {
+    if (!statusCert) return null
+    const status = certStatus || statusCert
+    const currentStep = getAcmeStepIndex(status.status, status.acme_step || 0)
+    const isError = status.status === 'error'
+    const isValid = status.status === 'valid'
+
+    return (
+      <div>
+        {/* 步骤进度条 */}
+        <Steps
+          current={isValid ? 4 : currentStep}
+          status={isError ? 'error' : (isValid ? 'finish' : 'process')}
+          size="small"
+          style={{ marginBottom: 24 }}
+          items={[
+            {
+              title: t('domainCert.step1Title'),
+              description: t('domainCert.step1Desc'),
+              icon: <CloudServerOutlined />,
+            },
+            {
+              title: t('domainCert.step2Title'),
+              description: t('domainCert.step2Desc'),
+              icon: <GlobalOutlined />,
+            },
+            {
+              title: t('domainCert.step3Title'),
+              description: t('domainCert.step3Desc'),
+              icon: <AuditOutlined />,
+            },
+            {
+              title: t('domainCert.step4Title'),
+              description: t('domainCert.step4Desc'),
+              icon: <FileProtectOutlined />,
+            },
+          ]}
+        />
+
+        {/* 状态详情 */}
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Descriptions column={2} size="small">
+            <Descriptions.Item label={t('domainCert.currentStatus')}>
+              {getStatusTag(status.status)}
+            </Descriptions.Item>
+            <Descriptions.Item label={t('domainCert.currentStep')}>
+              {status.acme_step || 0} / 4
+            </Descriptions.Item>
+            {status.acme_next_action && (
+              <Descriptions.Item label={t('domainCert.nextAction')} span={2}>
+                <Space>
+                  <ClockCircleOutlined />
+                  {dayjs(status.acme_next_action).format('YYYY-MM-DD HH:mm:ss')}
+                  <Text type="secondary">
+                    ({dayjs(status.acme_next_action).diff(dayjs(), 'second') > 0
+                      ? `${dayjs(status.acme_next_action).diff(dayjs(), 'second')} ${t('domainCert.secondsLater')}`
+                      : t('domainCert.executing')})
+                  </Text>
+                </Space>
+              </Descriptions.Item>
+            )}
+            {status.expire_at && (
+              <Descriptions.Item label={t('domainCert.expireAt')} span={2}>
+                {dayjs(status.expire_at).format('YYYY-MM-DD HH:mm:ss')}
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+        </Card>
+
+        {/* DNS 记录信息 */}
+        {status.acme_dns_record && (
+          <Card size="small" title={t('domainCert.dnsRecordInfo')} style={{ marginBottom: 16 }}>
+            {status.acme_dns_record.split('\n').map((record: string, idx: number) => {
+              const value = status.acme_dns_value?.split('\n')[idx] || ''
+              return (
+                <div key={idx} style={{ marginBottom: 8 }}>
+                  <div>
+                    <Text strong>{t('domainCert.dnsRecordName')}:</Text>{' '}
+                    <Text code copyable>{record}</Text>
+                  </div>
+                  <div>
+                    <Text strong>{t('domainCert.dnsRecordValue')}:</Text>{' '}
+                    <Text code copyable>{value}</Text>
+                  </div>
+                </div>
+              )
+            })}
+          </Card>
+        )}
+
+        {/* 错误信息 */}
+        {status.last_error && (
+          <Alert
+            type="error"
+            showIcon
+            message={t('domainCert.errorInfo')}
+            description={status.last_error}
+            style={{ marginBottom: 16 }}
+          />
+        )}
+
+        {/* 手动操作按钮 */}
+        <Card size="small" title={t('domainCert.manualOps')}>
+          <Space wrap>
+            <Button
+              size="small"
+              icon={<CloudServerOutlined />}
+              onClick={() => handleStep(statusCert.id, 'create-order')}
+              disabled={!['pending', 'error', 'valid', 'expired'].includes(status.status)}
+            >
+              {t('domainCert.step1Title')}
+            </Button>
+            <Button
+              size="small"
+              icon={<GlobalOutlined />}
+              onClick={() => handleStep(statusCert.id, 'set-dns')}
+              disabled={status.status !== 'order_created'}
+            >
+              {t('domainCert.step2Title')}
+            </Button>
+            <Button
+              size="small"
+              icon={<AuditOutlined />}
+              onClick={() => handleStep(statusCert.id, 'validate')}
+              disabled={status.status !== 'dns_set'}
+            >
+              {t('domainCert.step3Title')}
+            </Button>
+            <Button
+              size="small"
+              icon={<FileProtectOutlined />}
+              onClick={() => handleStep(statusCert.id, 'obtain')}
+              disabled={status.status !== 'validating'}
+            >
+              {t('domainCert.step4Title')}
+            </Button>
+          </Space>
+          <div style={{ marginTop: 8 }}>
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {t('domainCert.manualOpsHint')}
+            </Text>
+          </div>
+        </Card>
+      </div>
     )
   }
 
@@ -400,6 +721,7 @@ const DomainCert: React.FC = () => {
         pagination={{ pageSize: 20, showSizeChanger: true }}
       />
 
+      {/* 创建/编辑弹窗 */}
       <Modal
         title={editRecord ? t('common.edit') : t('common.create')}
         open={modalOpen} onOk={handleSubmit} onCancel={() => { setModalOpen(false); setDnsWarnings([]) }}
@@ -407,7 +729,7 @@ const DomainCert: React.FC = () => {
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label={t('common.name')} rules={[{ required: true }]}>
-            <Input placeholder="证书名称" />
+            <Input placeholder={t('domainCert.namePlaceholder')} />
           </Form.Item>
 
           {/* 证书类型切换 */}
@@ -425,8 +747,8 @@ const DomainCert: React.FC = () => {
                 <Form.Item
                   name="cert_content"
                   label={t('domainCert.certContent')}
-                  rules={[{ required: true, message: '请粘贴证书内容' }]}
-                  extra={parsingCert ? '正在自动识别证书域名...' : '粘贴 PEM 格式证书后将自动识别域名（包含完整证书链）'}
+                  rules={[{ required: true, message: t('domainCert.certContentRequired') }]}
+                  extra={parsingCert ? t('domainCert.certContentParsing') : t('domainCert.certContentHint')}
                 >
                   <Input.TextArea
                     rows={6}
@@ -437,7 +759,7 @@ const DomainCert: React.FC = () => {
 
                 <Form.Item
                   name="domains"
-                  label={`${t('domainCert.domains')}（自动识别，可手动修改）`}
+                  label={t('domainCert.domainsAutoDetect')}
                   rules={[{
                     validator: (_, val: DomainEntry[]) => {
                       const domains = entriesToDomains(val || [])
@@ -451,8 +773,8 @@ const DomainCert: React.FC = () => {
                 <Form.Item
                   name="key_content"
                   label={t('domainCert.keyContent')}
-                  rules={[{ required: true, message: '请粘贴私钥内容' }]}
-                  extra="PEM 格式私钥内容"
+                  rules={[{ required: true, message: t('domainCert.keyContentRequired') }]}
+                  extra={t('domainCert.keyContentHint')}
                 >
                   <Input.TextArea rows={5} placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----" />
                 </Form.Item>
@@ -474,21 +796,21 @@ const DomainCert: React.FC = () => {
                   <Col span={12}>
                     <Form.Item name="challenge_type" label={t('domainCert.challengeType')}>
                       <Select onChange={() => setDnsWarnings([])}>
-                        <Option value="dns">DNS-01（推荐，支持通配符）</Option>
+                        <Option value="dns">DNS-01（{t('domainCert.dnsRecommended')}）</Option>
                         <Option value="http">HTTP-01</Option>
                       </Select>
                     </Form.Item>
                   </Col>
                 </Row>
 
-                {/* 证书账号（ACME 申请必选） */}
+                {/* 证书账号 */}
                 <Form.Item
                   name="cert_account_id"
                   label={t('domainCert.certAccount')}
-                  rules={[{ required: true, message: '请选择证书账号（ACME 申请必须选择）' }]}
-                  extra="ACME 申请必须选择预先注册的证书账号"
+                  rules={[{ required: true, message: t('domainCert.certAccountRequired') }]}
+                  extra={t('domainCert.certAccountHint')}
                 >
-                  <Select placeholder="请选择证书账号">
+                  <Select placeholder={t('domainCert.certAccountPlaceholder')}>
                     {certAccounts.map(a => (
                       <Option key={a.id} value={a.id}>
                         <Space size={4}>
@@ -514,7 +836,7 @@ const DomainCert: React.FC = () => {
                   <DomainListEditor />
                 </Form.Item>
 
-                {/* DNS 账号（DNS-01 时显示，选择后校验域名） */}
+                {/* DNS 账号 */}
                 <Form.Item
                   noStyle
                   shouldUpdate={(prev, cur) =>
@@ -527,11 +849,11 @@ const DomainCert: React.FC = () => {
                     <>
                       <Form.Item
                         name="domain_account_id"
-                        label="DNS 账号"
-                        extra="选择用于 DNS-01 验证的域名账号（选择后将校验域名是否已添加）"
+                        label={t('domainCert.dnsAccount')}
+                        extra={t('domainCert.dnsAccountHint')}
                       >
                         <Select
-                          placeholder="选择域名账号（可选）"
+                          placeholder={t('domainCert.dnsAccountPlaceholder')}
                           allowClear
                           onChange={(val) => {
                             const entries: DomainEntry[] = gfv('domains') || []
@@ -556,16 +878,16 @@ const DomainCert: React.FC = () => {
                 <Row gutter={16}>
                   <Col span={12}>
                     <Form.Item name="auto_renew" label={t('domainCert.autoRenew')} valuePropName="checked">
-                      <Switch checkedChildren="自动续期" unCheckedChildren="手动" />
+                      <Switch checkedChildren={t('domainCert.autoRenewOn')} unCheckedChildren={t('domainCert.autoRenewOff')} />
                     </Form.Item>
                   </Col>
                   <Col span={12}>
                     <Form.Item
                       name="renew_before_days"
                       label={t('domainCert.renewBeforeDays')}
-                      extra={<span style={{ fontSize: 11 }}>到期前多少天自动续期</span>}
+                      extra={<span style={{ fontSize: 11 }}>{t('domainCert.renewBeforeDaysHint')}</span>}
                     >
-                      <InputNumber min={1} max={60} style={{ width: '100%' }} addonAfter="天" />
+                      <InputNumber min={1} max={60} style={{ width: '100%' }} addonAfter={t('domainCert.days')} />
                     </Form.Item>
                   </Col>
                 </Row>
@@ -577,6 +899,32 @@ const DomainCert: React.FC = () => {
             <Input.TextArea rows={2} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* ACME 流程状态弹窗 */}
+      <Modal
+        title={
+          <Space>
+            <SafetyCertificateOutlined />
+            {t('domainCert.acmeFlowTitle')}
+            {statusCert && <Text type="secondary">- {statusCert.name}</Text>}
+          </Space>
+        }
+        open={statusModalOpen}
+        onCancel={closeStatusModal}
+        footer={[
+          <Button key="refresh" icon={<SyncOutlined />} loading={statusLoading}
+            onClick={() => statusCert && fetchCertStatus(statusCert.id)}>
+            {t('common.refresh')}
+          </Button>,
+          <Button key="close" onClick={closeStatusModal}>
+            {t('common.close')}
+          </Button>,
+        ]}
+        width={700}
+        destroyOnHidden
+      >
+        {renderStatusModal()}
       </Modal>
     </div>
   )

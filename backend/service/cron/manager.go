@@ -1,6 +1,7 @@
 package cron
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -18,6 +19,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// SyncDNSRecordFunc 同步 DNS 解析记录的回调函数类型
+type SyncDNSRecordFunc func(ctx context.Context, domainInfoID uint) (int, error)
+
 // Manager 计划任务管理器
 type Manager struct {
 	db       *gorm.DB
@@ -28,6 +32,7 @@ type Manager struct {
 	certMgr  *cert.Manager
 	ddnsMgr  *ddns.Manager
 	wolMgr   *wol.Manager
+	syncDNSRecordFunc SyncDNSRecordFunc // 由外部注入的 DNS 解析记录同步函数
 }
 
 func NewManager(db *gorm.DB, log *logrus.Logger, certMgr *cert.Manager, ddnsMgr *ddns.Manager, wolMgr *wol.Manager) *Manager {
@@ -105,6 +110,8 @@ func (m *Manager) executeTask(id uint) {
 		result, execErr = m.runUpdateDDNS(task.TargetID)
 	case "wol":
 		result, execErr = m.runWOL(task.TargetID)
+	case "sync_dns_record":
+		result, execErr = m.runSyncDNSRecord(task.TargetID)
 	default:
 		result = "未知任务类型"
 	}
@@ -208,4 +215,28 @@ func (m *Manager) runWOL(targetID uint) (string, error) {
 		return "", fmt.Errorf("网络唤醒失败: %w", err)
 	}
 	return fmt.Sprintf("WOL 设备 [%s] (MAC: %s) 唤醒包已发送", device.Name, device.MACAddress), nil
+}
+
+// SetSyncDNSRecordFunc 设置 DNS 解析记录同步回调函数
+func (m *Manager) SetSyncDNSRecordFunc(fn SyncDNSRecordFunc) {
+	m.syncDNSRecordFunc = fn
+}
+
+// runSyncDNSRecord 同步 DNS 解析记录
+func (m *Manager) runSyncDNSRecord(targetID uint) (string, error) {
+	if m.syncDNSRecordFunc == nil {
+		return "", fmt.Errorf("DNS 解析记录同步函数未初始化")
+	}
+	if targetID == 0 {
+		return "", fmt.Errorf("未指定域名 ID")
+	}
+	var domainInfo model.DomainInfo
+	if err := m.db.First(&domainInfo, targetID).Error; err != nil {
+		return "", fmt.Errorf("域名不存在(ID=%d): %w", targetID, err)
+	}
+	count, err := m.syncDNSRecordFunc(context.Background(), targetID)
+	if err != nil {
+		return "", fmt.Errorf("DNS 解析记录同步失败: %w", err)
+	}
+	return fmt.Sprintf("域名 [%s] 解析记录同步成功，共 %d 条记录", domainInfo.Name, count), nil
 }

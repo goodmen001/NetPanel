@@ -72,7 +72,7 @@ func (m *Manager) loadRules() {
 			json.Unmarshal([]byte(rule.IPList), &manualIPs)
 		}
 
-		// 2. 从 IPDB 条目获取 IP/CIDR
+		// 2. 从 IPDB 条目获取 IP/CIDR（一条记录可能包含多个逗号分隔的 IP/CIDR）
 		var ipdbIPs []string
 		if rule.BindIPDBIDs != "" {
 			var ipdbIDs []uint
@@ -81,7 +81,13 @@ func (m *Manager) loadRules() {
 				m.db.Where("id IN ?", ipdbIDs).Find(&entries)
 				for _, e := range entries {
 					if e.CIDR != "" {
-						ipdbIPs = append(ipdbIPs, e.CIDR)
+						// 拆分逗号分隔的多个 IP/CIDR
+						for _, cidr := range strings.Split(e.CIDR, ",") {
+							cidr = strings.TrimSpace(cidr)
+							if cidr != "" {
+								ipdbIPs = append(ipdbIPs, cidr)
+							}
+						}
 					}
 				}
 			}

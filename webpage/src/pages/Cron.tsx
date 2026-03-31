@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Table, Button, Space, Switch, Modal, Form, Input, Select, Popconfirm, message, Typography, Tag } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
-import { cronApi, domainCertApi, ddnsApi, wolApi } from '../api'
+import { cronApi, domainCertApi, ddnsApi, wolApi, domainInfoApi } from '../api'
 import StatusTag from '../components/StatusTag'
 import CronExprInput from '../components/CronExprInput'
 import dayjs from 'dayjs'
@@ -20,6 +20,7 @@ const Cron: React.FC = () => {
   const [certList, setCertList] = useState<any[]>([])
   const [ddnsList, setDdnsList] = useState<any[]>([])
   const [wolList, setWolList] = useState<any[]>([])
+  const [domainList, setDomainList] = useState<any[]>([])
 
   const fetchData = async () => {
     setLoading(true)
@@ -31,14 +32,16 @@ const Cron: React.FC = () => {
   // 加载关联数据列表（打开弹窗时）
   const loadTargetLists = async () => {
     try {
-      const [certRes, ddnsRes, wolRes]: any[] = await Promise.all([
+      const [certRes, ddnsRes, wolRes, domainRes]: any[] = await Promise.all([
         domainCertApi.list(),
         ddnsApi.list(),
         wolApi.list(),
+        domainInfoApi.list(),
       ])
       setCertList(certRes.data || [])
       setDdnsList(ddnsRes.data || [])
       setWolList(wolRes.data || [])
+      setDomainList(domainRes.data || [])
     } catch { /* ignore */ }
   }
 
@@ -57,6 +60,7 @@ const Cron: React.FC = () => {
       renew_cert: t('cron.typeRenewCert'),
       update_ddns: t('cron.typeUpdateDdns'),
       wol: t('cron.typeWol'),
+      sync_dns_record: t('cron.typeSyncDnsRecord'),
     }
     return map[v] || v
   }
@@ -98,6 +102,7 @@ const Cron: React.FC = () => {
               <Option value="renew_cert">{t('cron.typeRenewCert')}</Option>
               <Option value="update_ddns">{t('cron.typeUpdateDdns')}</Option>
               <Option value="wol">{t('cron.typeWol')}</Option>
+              <Option value="sync_dns_record">{t('cron.typeSyncDnsRecord')}</Option>
             </Select>
           </Form.Item>
           {taskType === 'shell' && <Form.Item name="command" label={t('cron.command')} rules={[{ required: true }]}><Input.TextArea rows={3} placeholder="shell命令" /></Form.Item>}
@@ -124,6 +129,13 @@ const Cron: React.FC = () => {
             <Form.Item name="target_id" label={t('cron.targetWol')} rules={[{ required: true, message: t('cron.targetWolRequired') }]}>
               <Select placeholder={t('cron.targetWolPlaceholder')} style={{ width: '100%' }}>
                 {wolList.map(w => <Option key={w.id} value={w.id}>{w.name} ({w.mac_address})</Option>)}
+              </Select>
+            </Form.Item>
+          )}
+          {taskType === 'sync_dns_record' && (
+            <Form.Item name="target_id" label={t('cron.targetDomain')} rules={[{ required: true, message: t('cron.targetDomainRequired') }]}>
+              <Select placeholder={t('cron.targetDomainPlaceholder')} style={{ width: '100%' }}>
+                {domainList.map(d => <Option key={d.id} value={d.id}>{d.name}</Option>)}
               </Select>
             </Form.Item>
           )}

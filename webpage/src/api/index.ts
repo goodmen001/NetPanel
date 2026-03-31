@@ -163,6 +163,13 @@ export const domainCertApi = {
   update: (id: number, data: any) => request.put(`/v1/domain/certs/${id}`, data),
   delete: (id: number) => request.delete(`/v1/domain/certs/${id}`),
   apply: (id: number) => request.post(`/v1/domain/certs/${id}/apply`),
+  renew: (id: number) => request.post(`/v1/domain/certs/${id}/renew`),
+  getStatus: (id: number) => request.get(`/v1/domain/certs/${id}/status`),
+  // ACME 分步操作
+  stepCreateOrder: (id: number) => request.post(`/v1/domain/certs/${id}/step/create-order`),
+  stepSetDNS: (id: number) => request.post(`/v1/domain/certs/${id}/step/set-dns`),
+  stepValidate: (id: number) => request.post(`/v1/domain/certs/${id}/step/validate`),
+  stepObtain: (id: number) => request.post(`/v1/domain/certs/${id}/step/obtain`),
   // 解析 PEM 证书内容，返回域名列表
   parseCert: (data: { cert_content: string }) => request.post('/v1/domain/certs/parse', data),
 }

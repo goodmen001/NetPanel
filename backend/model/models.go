@@ -739,6 +739,8 @@ type DomainCert struct {
 	// 关联证书账号（ACME CA 账号）
 	CertAccountID uint        `json:"cert_account_id"`
 	CertAccount   CertAccount `gorm:"foreignKey:CertAccountID" json:"cert_account,omitempty"`
+	// 关联域名账号（用于 DNS 验证）
+	DomainAccount DomainAccount `gorm:"foreignKey:DomainAccountID" json:"domain_account,omitempty"`
 	// 证书文件路径（ACME 申请后写入）
 	CertFile string `gorm:"size:500" json:"cert_file"`
 	KeyFile  string `gorm:"size:500" json:"key_file"`
@@ -749,7 +751,25 @@ type DomainCert struct {
 	AutoRenew       bool       `gorm:"default:true" json:"auto_renew"`
 	// 提前续期天数，默认 7 天
 	RenewBeforeDays int    `gorm:"default:7" json:"renew_before_days"`
-	Status          string `gorm:"size:20;default:'pending'" json:"status"` // pending/valid/expired/error/applying
+	// ACME 流程状态：pending/order_created/dns_set/validating/valid/expired/error/applying
+	// pending: 初始状态
+	// order_created: 已创建订单，获取到挑战信息
+	// dns_set: 已设置 DNS 解析记录
+	// validating: 已提交验证，等待 CA 验证
+	// valid: 证书有效
+	// expired: 证书已过期
+	// error: 出错
+	// applying: 正在申请中（兼容旧状态）
+	Status          string `gorm:"size:20;default:'pending'" json:"status"`
+	// ACME 流程步骤：0=未开始, 1=创建订单, 2=设置DNS, 3=提交验证, 4=获取证书
+	AcmeStep        int    `gorm:"default:0" json:"acme_step"`
+	// ACME 流程内部数据（JSON，存储订单URL、挑战信息等，不暴露给前端敏感数据）
+	AcmeData        string `gorm:"type:text" json:"-"`
+	// ACME 流程中的 DNS 挑战记录名和值（用于前端展示）
+	AcmeDnsRecord   string `gorm:"size:500" json:"acme_dns_record"`
+	AcmeDnsValue    string `gorm:"size:500" json:"acme_dns_value"`
+	// 定时任务：创建订单后自动执行后续步骤的计划时间
+	AcmeNextAction  *time.Time `json:"acme_next_action"`
 	LastError       string `gorm:"type:text" json:"last_error"`
 	Remark          string `gorm:"size:500" json:"remark"`
 }
@@ -803,12 +823,12 @@ type CronTask struct {
 	Name         string     `gorm:"size:100;not null" json:"name"`
 	Enable       bool       `gorm:"default:false" json:"enable"`
 	CronExpr     string     `gorm:"size:100;not null" json:"cron_expr"`
-	TaskType     string     `gorm:"size:20;default:'shell'" json:"task_type"` // shell/http/renew_cert/update_ddns/wol
+	TaskType     string     `gorm:"size:20;default:'shell'" json:"task_type"` // shell/http/renew_cert/update_ddns/wol/sync_dns_record
 	Command      string     `gorm:"type:text" json:"command"`
 	HTTPURL      string     `gorm:"size:500" json:"http_url"`
 	HTTPMethod   string     `gorm:"size:10;default:'GET'" json:"http_method"`
 	HTTPBody     string     `gorm:"type:text" json:"http_body"`
-	TargetID     uint       `gorm:"default:0" json:"target_id"` // 关联目标 ID（证书/DDNS/WOL 设备）
+	TargetID     uint       `gorm:"default:0" json:"target_id"` // 关联目标 ID（证书/DDNS/WOL 设备/域名）
 	LastRunTime  *time.Time `json:"last_run_time"`
 	LastRunResult string    `gorm:"type:text" json:"last_run_result"`
 	Status       string     `gorm:"size:20;default:'stopped'" json:"status"`
@@ -839,7 +859,7 @@ type StorageConfig struct {
 // IPDBEntry IP 地址库条目
 type IPDBEntry struct {
 	BaseModel
-	CIDR     string `gorm:"size:50;not null;uniqueIndex" json:"cidr"`
+	CIDR     string `gorm:"type:text;not null" json:"cidr"` // 多个 IP/CIDR 用逗号分隔
 	Location string `gorm:"size:255" json:"location"`
 	Tags     string `gorm:"size:500" json:"tags"` // 逗号分隔
 	Remark   string `gorm:"size:500" json:"remark"`

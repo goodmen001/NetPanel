@@ -27,6 +27,7 @@ import (
 	"github.com/netpanel/netpanel/pkg/logger"
 	"github.com/netpanel/netpanel/service/access"
 	"github.com/netpanel/netpanel/service/callback"
+	"github.com/netpanel/netpanel/service/cert"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -714,7 +715,7 @@ func (h *DomainInfoHandler) scheduleAutoSync(domainID uint, intervalMinutes int)
 	runSync = func() {
 		h.log.Infof("[域名自动同步] 执行同步: domain_id=%d", domainID)
 		ctx := context.Background()
-		h.doSyncFromProvider(ctx, domainID)
+		h.DoSyncFromProvider(ctx, domainID)
 
 		// 重新注册下一次
 		autoSyncTimersMu.Lock()
@@ -742,7 +743,7 @@ func cancelAutoSync(domainID uint) {
 
 // doSyncFromProvider 核心同步逻辑：从服务商拉取解析记录并 upsert 到本地
 // 返回同步的记录数和错误
-func (h *DomainInfoHandler) doSyncFromProvider(ctx context.Context, domainInfoID uint) (int, error) {
+func (h *DomainInfoHandler) DoSyncFromProvider(ctx context.Context, domainInfoID uint) (int, error) {
 	var domain model.DomainInfo
 	if err := h.db.WithContext(ctx).First(&domain, domainInfoID).Error; err != nil {
 		return 0, fmt.Errorf("域名不存在: %w", err)
@@ -1046,7 +1047,7 @@ func (h *DomainInfoHandler) UpdateAutoSync(c *gin.Context) {
 // Refresh 立即刷新（手动触发同步）
 func (h *DomainInfoHandler) Refresh(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	count, err := h.doSyncFromProvider(c.Request.Context(), uint(id))
+	count, err := h.DoSyncFromProvider(c.Request.Context(), uint(id))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
@@ -1117,13 +1118,14 @@ func (h *CertAccountHandler) Verify(c *gin.Context) {
 // ===== 域名证书 =====
 
 type CertHandler struct {
-	db     *gorm.DB
-	log    *logrus.Logger
-	config *config.Config
+	db      *gorm.DB
+	log     *logrus.Logger
+	config  *config.Config
+	certMgr *cert.Manager
 }
 
-func NewCertHandler(db *gorm.DB, log *logrus.Logger, cfg *config.Config) *CertHandler {
-	return &CertHandler{db: db, log: log, config: cfg}
+func NewCertHandler(db *gorm.DB, log *logrus.Logger, cfg *config.Config, certMgr *cert.Manager) *CertHandler {
+	return &CertHandler{db: db, log: log, config: cfg, certMgr: certMgr}
 }
 
 func (h *CertHandler) List(c *gin.Context) {
@@ -1139,6 +1141,7 @@ func (h *CertHandler) Create(c *gin.Context) {
 		return
 	}
 	cert.Status = "pending"
+	cert.AcmeStep = 0
 	h.db.Create(&cert)
 	logger.WriteLog("info", "cert", fmt.Sprintf("创建域名证书 [%d]", cert.ID))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": cert, "message": "创建成功"})
@@ -1164,12 +1167,87 @@ func (h *CertHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
 }
 
-func (h *CertHandler) Renew(c *gin.Context) {
+// Apply 一键申请证书（自动执行全部 ACME 流程）
+func (h *CertHandler) Apply(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	// TODO: 实现 ACME 证书续期
-	h.log.Infof("触发证书续期: %d", id)
-	logger.WriteLog("info", "cert", fmt.Sprintf("触发证书续期 [%d]", id))
-	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "证书续期任务已提交"})
+	h.log.Infof("触发证书申请: %d", id)
+	logger.WriteLog("info", "cert", fmt.Sprintf("触发证书申请 [%d]", id))
+
+	go func() {
+		if err := h.certMgr.StartApply(uint(id)); err != nil {
+			h.log.Errorf("证书申请失败 [%d]: %v", id, err)
+		}
+	}()
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "证书申请任务已提交"})
+}
+
+// Renew 续期证书（兼容旧接口，等同于 Apply）
+func (h *CertHandler) Renew(c *gin.Context) {
+	h.Apply(c)
+}
+
+// GetStatus 获取证书 ACME 流程状态
+func (h *CertHandler) GetStatus(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	status := h.certMgr.GetStatus(uint(id))
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": status})
+}
+
+// StepCreateOrder 手动触发步骤1：创建订单
+func (h *CertHandler) StepCreateOrder(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	logger.WriteLog("info", "cert", fmt.Sprintf("手动触发创建订单 [%d]", id))
+
+	go func() {
+		if err := h.certMgr.StepCreateOrder(uint(id)); err != nil {
+			h.log.Errorf("创建订单失败 [%d]: %v", id, err)
+		}
+	}()
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "创建订单任务已提交"})
+}
+
+// StepSetDNS 手动触发步骤2：设置 DNS
+func (h *CertHandler) StepSetDNS(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	logger.WriteLog("info", "cert", fmt.Sprintf("手动触发设置DNS [%d]", id))
+
+	go func() {
+		if err := h.certMgr.StepSetDNS(uint(id)); err != nil {
+			h.log.Errorf("设置DNS失败 [%d]: %v", id, err)
+		}
+	}()
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "设置DNS任务已提交"})
+}
+
+// StepValidate 手动触发步骤3：提交验证
+func (h *CertHandler) StepValidate(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	logger.WriteLog("info", "cert", fmt.Sprintf("手动触发提交验证 [%d]", id))
+
+	go func() {
+		if err := h.certMgr.StepValidate(uint(id)); err != nil {
+			h.log.Errorf("提交验证失败 [%d]: %v", id, err)
+		}
+	}()
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "提交验证任务已提交"})
+}
+
+// StepObtain 手动触发步骤4：获取证书
+func (h *CertHandler) StepObtain(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	logger.WriteLog("info", "cert", fmt.Sprintf("手动触发获取证书 [%d]", id))
+
+	go func() {
+		if err := h.certMgr.StepObtain(uint(id)); err != nil {
+			h.log.Errorf("获取证书失败 [%d]: %v", id, err)
+		}
+	}()
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取证书任务已提交"})
 }
 
 // ===== 域名解析 =====
@@ -1258,7 +1336,7 @@ func (h *DomainRecordHandler) SyncFromProvider(c *gin.Context) {
 
 	// 使用 doSyncFromProvider 统一处理同步逻辑
 	domainInfoHandler := &DomainInfoHandler{db: h.db, log: h.log}
-	count, err := domainInfoHandler.doSyncFromProvider(c.Request.Context(), uint(domainInfoID))
+	count, err := domainInfoHandler.DoSyncFromProvider(c.Request.Context(), uint(domainInfoID))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
@@ -1363,27 +1441,24 @@ func parseIPsFromLine(line string) []string {
 	return result
 }
 
-// parseTextToEntries 将文本内容解析为 IPDBEntry 列表
-// 支持每行多个 IP/CIDR（空格/逗号/分号分隔），行尾可附加 location 和 tags
+// parseTextToCIDRs 将文本内容解析为 IP/CIDR 列表
+// 支持每行多个 IP/CIDR（空格/逗号/分号分隔），行尾可附加 location 和 tags（会被忽略）
 // 格式：
 //   CIDR1 CIDR2 CIDR3
 //   CIDR1,CIDR2 location tags
 //   # 注释行
-func parseTextToEntries(text, defaultLocation, defaultTags string) []model.IPDBEntry {
-	var entries []model.IPDBEntry
+func parseTextToCIDRs(text string) []string {
+	var cidrs []string
 	scanner := bufio.NewScanner(strings.NewReader(text))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
 		}
-		// 尝试解析行中所有 token，IP/CIDR 格式的作为地址，其余作为 location/tags
 		replacer := strings.NewReplacer(",", " ", ";", " ")
 		normalized := replacer.Replace(line)
 		tokens := strings.Fields(normalized)
 
-		var cidrs []string
-		var extras []string
 		for _, tok := range tokens {
 			if strings.Contains(tok, "/") {
 				_, _, err := net.ParseCIDR(tok)
@@ -1393,57 +1468,21 @@ func parseTextToEntries(text, defaultLocation, defaultTags string) []model.IPDBE
 				}
 			} else if net.ParseIP(tok) != nil {
 				cidrs = append(cidrs, tok)
-				continue
 			}
-			extras = append(extras, tok)
-		}
-
-		// extras[0] 作为 location，extras[1] 作为 tags（若未指定默认值）
-		location := defaultLocation
-		tags := defaultTags
-		if len(extras) >= 1 && defaultLocation == "" {
-			location = extras[0]
-		}
-		if len(extras) >= 2 && defaultTags == "" {
-			tags = extras[1]
-		}
-
-		for _, cidr := range cidrs {
-			entries = append(entries, model.IPDBEntry{
-				CIDR:     cidr,
-				Location: location,
-				Tags:     tags,
-			})
 		}
 	}
-	return entries
+	return cidrs
 }
 
-// upsertEntries 批量 upsert IP 条目，返回实际写入数量
-func (h *IPDBHandler) upsertEntries(entries []model.IPDBEntry) int {
-	imported := 0
-	for i := range entries {
-		if entries[i].CIDR == "" {
-			continue
-		}
-		var existing model.IPDBEntry
-		result := h.db.Where("cidr = ?", entries[i].CIDR).First(&existing)
-		if result.Error == nil {
-			existing.Location = entries[i].Location
-			existing.Tags = entries[i].Tags
-			if entries[i].Remark != "" {
-				existing.Remark = entries[i].Remark
-			}
-			h.db.Save(&existing)
-		} else {
-			h.db.Create(&entries[i])
-		}
-		imported++
+// createEntry 创建一条 IP 地址库条目，返回是否成功
+func (h *IPDBHandler) createEntry(entry *model.IPDBEntry) bool {
+	if entry.CIDR == "" {
+		return false
 	}
-	return imported
+	return h.db.Create(entry).Error == nil
 }
 
-// Import 批量导入（手动输入文本，每行支持多个 IP/CIDR）
+// Import 批量导入（手动输入文本，同一次导入的所有 IP/CIDR 合并为一条记录）
 func (h *IPDBHandler) Import(c *gin.Context) {
 	var req struct {
 		Entries  []model.IPDBEntry `json:"entries"`
@@ -1456,24 +1495,41 @@ func (h *IPDBHandler) Import(c *gin.Context) {
 		return
 	}
 
-	var entries []model.IPDBEntry
-	if req.Text != "" {
-		entries = append(entries, parseTextToEntries(req.Text, req.Location, req.Tags)...)
-	}
-	entries = append(entries, req.Entries...)
+	imported := 0
 
-	if len(entries) == 0 {
+	// 文本导入：所有 IP/CIDR 合并为一条记录
+	if req.Text != "" {
+		cidrs := parseTextToCIDRs(req.Text)
+		if len(cidrs) > 0 {
+			entry := model.IPDBEntry{
+				CIDR:     strings.Join(cidrs, ","),
+				Location: req.Location,
+				Tags:     req.Tags,
+			}
+			if h.createEntry(&entry) {
+				imported++
+			}
+		}
+	}
+
+	// 直接传入的条目逐条创建
+	for i := range req.Entries {
+		if h.createEntry(&req.Entries[i]) {
+			imported++
+		}
+	}
+
+	if imported == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "没有可导入的条目"})
 		return
 	}
 
-	imported := h.upsertEntries(entries)
 	logger.WriteLog("info", "ipdb", fmt.Sprintf("批量导入IP地址库 共%d条", imported))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "导入成功", "data": gin.H{"count": imported}})
 }
 
-// downloadAndParseURL 下载 URL 内容并解析为 IPDBEntry 列表
-func (h *IPDBHandler) downloadAndParseURL(url, defaultLocation, defaultTags string) ([]model.IPDBEntry, error) {
+// downloadAndParseCIDRs 下载 URL 内容并解析为 IP/CIDR 列表
+func (h *IPDBHandler) downloadAndParseCIDRs(url string) ([]string, error) {
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
@@ -1491,8 +1547,8 @@ func (h *IPDBHandler) downloadAndParseURL(url, defaultLocation, defaultTags stri
 		return nil, fmt.Errorf("读取内容失败: %w", err)
 	}
 
-	entries := parseTextToEntries(string(body), defaultLocation, defaultTags)
-	return entries, nil
+	cidrs := parseTextToCIDRs(string(body))
+	return cidrs, nil
 }
 
 // ImportFromURL 从 URL 下载并导入 IP 列表（每行支持多个 IP/CIDR）
@@ -1508,13 +1564,13 @@ func (h *IPDBHandler) ImportFromURL(c *gin.Context) {
 		return
 	}
 
-	entries, err := h.downloadAndParseURL(req.URL, req.Location, req.Tags)
+	cidrs, err := h.downloadAndParseCIDRs(req.URL)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
 
-	if len(entries) == 0 {
+	if len(cidrs) == 0 {
 		c.JSON(http.StatusOK, gin.H{"code": 200, "message": "文件中没有找到有效的 IP/CIDR 条目", "data": gin.H{"count": 0}})
 		return
 	}
@@ -1523,11 +1579,23 @@ func (h *IPDBHandler) ImportFromURL(c *gin.Context) {
 		h.db.Where("1 = 1").Delete(&model.IPDBEntry{})
 	}
 
-	imported := h.upsertEntries(entries)
-	logger.WriteLog("info", "ipdb", fmt.Sprintf("从URL导入IP地址库 共%d条 url=%s", imported, req.URL))
+	// 同一个 URL 下载的所有 IP/CIDR 合并为一条记录
+	entry := model.IPDBEntry{
+		CIDR:     strings.Join(cidrs, ","),
+		Location: req.Location,
+		Tags:     req.Tags,
+		Remark:   fmt.Sprintf("从 %s 导入", req.URL),
+	}
+	imported := 0
+	if h.createEntry(&entry) {
+		imported = 1
+	}
+
+	logger.WriteLog("info", "ipdb", fmt.Sprintf("从URL导入IP地址库 共%d个IP/CIDR url=%s", len(cidrs), req.URL))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "导入成功", "data": gin.H{
-		"count": imported,
-		"url":   req.URL,
+		"count":    imported,
+		"ip_count": len(cidrs),
+		"url":      req.URL,
 	}})
 }
 
@@ -1583,7 +1651,7 @@ func (h *IPDBHandler) RefreshSubscription(c *gin.Context) {
 		return
 	}
 
-	entries, err := h.downloadAndParseURL(sub.URL, sub.Location, sub.Tags)
+	cidrs, err := h.downloadAndParseCIDRs(sub.URL)
 	now := time.Now()
 	if err != nil {
 		sub.LastSyncTime = &now
@@ -1593,7 +1661,7 @@ func (h *IPDBHandler) RefreshSubscription(c *gin.Context) {
 		return
 	}
 
-	if len(entries) == 0 {
+	if len(cidrs) == 0 {
 		sub.LastSyncTime = &now
 		sub.LastSyncCount = 0
 		sub.LastSyncError = ""
@@ -1606,14 +1674,25 @@ func (h *IPDBHandler) RefreshSubscription(c *gin.Context) {
 		h.db.Where("1 = 1").Delete(&model.IPDBEntry{})
 	}
 
-	imported := h.upsertEntries(entries)
+	// 同一个订阅 URL 的所有 IP/CIDR 合并为一条记录
+	entry := model.IPDBEntry{
+		CIDR:     strings.Join(cidrs, ","),
+		Location: sub.Location,
+		Tags:     sub.Tags,
+		Remark:   fmt.Sprintf("订阅 [%s] 同步", sub.Name),
+	}
+	imported := 0
+	if h.createEntry(&entry) {
+		imported = 1
+	}
+
 	sub.LastSyncTime = &now
-	sub.LastSyncCount = imported
+	sub.LastSyncCount = len(cidrs)
 	sub.LastSyncError = ""
 	h.db.Save(&sub)
 
-	logger.WriteLog("info", "ipdb", fmt.Sprintf("刷新IP地址库订阅 [%d] 共%d条", id, imported))
-	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "刷新成功", "data": gin.H{"count": imported}})
+	logger.WriteLog("info", "ipdb", fmt.Sprintf("刷新IP地址库订阅 [%d] 共%d个IP/CIDR", id, len(cidrs)))
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "刷新成功", "data": gin.H{"count": len(cidrs)}})
 }
 
 // Query 查询 IP 归属地
@@ -1630,28 +1709,27 @@ func (h *IPDBHandler) Query(c *gin.Context) {
 		return
 	}
 
-	// 先精确匹配
-	var entry model.IPDBEntry
-	if err := h.db.Where("cidr = ?", ip).First(&entry).Error; err == nil {
-		c.JSON(http.StatusOK, gin.H{"code": 200, "data": entry})
-		return
-	}
-
-	// 遍历所有 CIDR 条目进行匹配
+	// 遍历所有条目，每条记录的 CIDR 字段可能包含逗号分隔的多个 IP/CIDR
 	var allEntries []model.IPDBEntry
 	h.db.Find(&allEntries)
 
 	for _, e := range allEntries {
-		if strings.Contains(e.CIDR, "/") {
-			_, ipNet, err := net.ParseCIDR(e.CIDR)
-			if err == nil && ipNet.Contains(netIP) {
-				c.JSON(http.StatusOK, gin.H{"code": 200, "data": e})
-				return
+		for _, cidr := range strings.Split(e.CIDR, ",") {
+			cidr = strings.TrimSpace(cidr)
+			if cidr == "" {
+				continue
 			}
-		} else {
-			if net.ParseIP(e.CIDR).Equal(netIP) {
-				c.JSON(http.StatusOK, gin.H{"code": 200, "data": e})
-				return
+			if strings.Contains(cidr, "/") {
+				_, ipNet, err := net.ParseCIDR(cidr)
+				if err == nil && ipNet.Contains(netIP) {
+					c.JSON(http.StatusOK, gin.H{"code": 200, "data": e})
+					return
+				}
+			} else {
+				if parsed := net.ParseIP(cidr); parsed != nil && parsed.Equal(netIP) {
+					c.JSON(http.StatusOK, gin.H{"code": 200, "data": e})
+					return
+				}
 			}
 		}
 	}

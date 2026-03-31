@@ -1681,10 +1681,7 @@ func (h *IPDBHandler) RefreshSubscription(c *gin.Context) {
 		Tags:     sub.Tags,
 		Remark:   fmt.Sprintf("订阅 [%s] 同步", sub.Name),
 	}
-	imported := 0
-	if h.createEntry(&entry) {
-		imported = 1
-	}
+	h.createEntry(&entry)
 
 	sub.LastSyncTime = &now
 	sub.LastSyncCount = len(cidrs)

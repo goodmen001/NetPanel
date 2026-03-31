@@ -235,12 +235,7 @@ func (m *Manager) StepCreateOrder(id uint) error {
 	user.Registration = reg
 
 	// 创建订单
-	var identifiers []acme.Identifier
-	for _, d := range domains {
-		identifiers = append(identifiers, acme.Identifier{Type: "dns", Value: d})
-	}
-
-	order, err := core.Orders.New(identifiers)
+	order, err := core.Orders.New(domains)
 	if err != nil {
 		return m.setError(id, fmt.Errorf("创建 ACME 订单失败: %w", err))
 	}
@@ -413,7 +408,7 @@ func (m *Manager) StepValidate(id uint) error {
 		m.log.Infof("[证书][%s] 提交验证: %s", cert.Name, domain)
 
 		// 通知 CA 验证挑战
-		if err := core.Challenges.New(chal.ChallengeURL); err != nil {
+		if _, err := core.Challenges.New(chal.ChallengeURL); err != nil {
 			return m.setError(id, fmt.Errorf("提交验证失败 (%s): %w", domain, err))
 		}
 	}
@@ -755,8 +750,8 @@ func (m *Manager) finalizeOrder(core *api.Core, order acme.ExtendedOrder, domain
 		return nil, fmt.Errorf("订单完成但未返回证书 URL")
 	}
 
-	// 下载证书
-	certData, err := core.Certificates.Get(orderResp.Certificate, true)
+	// 下载证书（返回值：证书PEM、issuer PEM、error）
+	certData, _, err := core.Certificates.Get(orderResp.Certificate, true)
 	if err != nil {
 		return nil, fmt.Errorf("下载证书失败: %w", err)
 	}

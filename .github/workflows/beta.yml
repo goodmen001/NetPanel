@@ -191,6 +191,17 @@ jobs:
         working-directory: backend
         run: GONOSUMCHECK=* GOFLAGS=-mod=mod go mod tidy
 
+      - name: Regenerate .syso for Windows ARM64
+        if: matrix.goos == 'windows' && matrix.goarch == 'arm64'
+        working-directory: backend
+        run: |
+          echo "Regenerating .syso with llvm-mingw windres for ARM64..."
+          /opt/llvm-mingw-20231128-ucrt-ubuntu-20.04-x86_64/bin/aarch64-w64-mingw32-windres \
+            netpanel.rc -o netpanel_windows_arm64.syso
+          echo "Done. File info:"
+          file netpanel_windows_arm64.syso || true
+          ls -la netpanel_windows_arm64.syso
+
       - name: Build backend
         working-directory: backend
         env:

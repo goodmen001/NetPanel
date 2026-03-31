@@ -1,0 +1,8 @@
+// Windows 资源定义文件
+// 用于 windres 编译生成 .syso 资源文件（嵌入 UAC manifest）
+// 使用方法：aarch64-w64-mingw32-windres netpanel.rc -o netpanel_windows_arm64.syso
+
+#define RT_MANIFEST 24
+#define CREATEPROCESS_MANIFEST_RESOURCE_ID 1
+
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "netpanel.manifest"

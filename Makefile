@@ -286,18 +286,85 @@ inno-build: build-windows-amd64
 	"$(INNO_COMPILER)" scripts/setup.iss
 	@echo ">>> Windows 安装程序打包完成，输出到 dist/"
 
+# ===== Electron 桌面应用构建 =====
+
+DESKTOP_DIR := desktop
+
+## install-deps-electron: 安装 Electron 依赖
+install-deps-electron:
+	@echo ">>> 安装 Electron 依赖..."
+	cd $(DESKTOP_DIR) && npm install
+
+## build-electron-ts: 编译 Electron TypeScript 源码
+build-electron-ts:
+	@echo ">>> 编译 Electron TypeScript..."
+	cd $(DESKTOP_DIR) && npm run build
+
+## build-electron: 构建前端 + 后端（当前平台）+ Electron 应用
+build-electron: build-frontend build-backend build-electron-ts
+	@echo ">>> 准备 Electron 资源..."
+	@mkdir -p $(DESKTOP_DIR)/resources
+	@OS=$(shell go env GOOS); \
+	if [ "$$OS" = "windows" ]; then \
+		cp $(DIST_DIR)/netpanel.exe $(DESKTOP_DIR)/resources/netpanel.exe; \
+	else \
+		cp $(DIST_DIR)/netpanel $(DESKTOP_DIR)/resources/netpanel; \
+		chmod +x $(DESKTOP_DIR)/resources/netpanel; \
+	fi
+	@echo ">>> 构建 Electron 应用（当前平台）..."
+	cd $(DESKTOP_DIR) && npm run pack
+	@echo ">>> Electron 应用构建完成: $(DIST_DIR)/electron/"
+
+## build-electron-win: 构建 Windows Electron 安装包（需要 Windows 环境或 Wine）
+build-electron-win: build-frontend build-windows-amd64 build-electron-ts
+	@echo ">>> 准备 Windows Electron 资源..."
+	@mkdir -p $(DESKTOP_DIR)/resources
+	cp $(DIST_DIR)/netpanel-windows-amd64.exe $(DESKTOP_DIR)/resources/netpanel.exe
+	@echo ">>> 构建 Windows Electron 安装包..."
+	cd $(DESKTOP_DIR) && npm run dist:win
+	@echo ">>> Windows Electron 安装包构建完成: $(DIST_DIR)/electron/"
+
+## build-electron-mac: 构建 macOS Electron 安装包（需要 macOS 环境）
+build-electron-mac: build-frontend build-darwin-amd64 build-electron-ts
+	@echo ">>> 准备 macOS Electron 资源..."
+	@mkdir -p $(DESKTOP_DIR)/resources
+	cp $(DIST_DIR)/netpanel-darwin-amd64 $(DESKTOP_DIR)/resources/netpanel
+	chmod +x $(DESKTOP_DIR)/resources/netpanel
+	@echo ">>> 构建 macOS Electron 安装包..."
+	cd $(DESKTOP_DIR) && npm run dist:mac
+	@echo ">>> macOS Electron 安装包构建完成: $(DIST_DIR)/electron/"
+
+## build-electron-linux: 构建 Linux Electron AppImage
+build-electron-linux: build-frontend build-linux-amd64 build-electron-ts
+	@echo ">>> 准备 Linux Electron 资源..."
+	@mkdir -p $(DESKTOP_DIR)/resources
+	cp $(DIST_DIR)/netpanel-linux-amd64 $(DESKTOP_DIR)/resources/netpanel
+	chmod +x $(DESKTOP_DIR)/resources/netpanel
+	@echo ">>> 构建 Linux Electron AppImage..."
+	cd $(DESKTOP_DIR) && npm run dist:linux
+	@echo ">>> Linux Electron AppImage 构建完成: $(DIST_DIR)/electron/"
+
+## dev-electron: 以开发模式启动 Electron 应用（需要后端已运行）
+dev-electron: build-electron-ts
+	@echo ">>> 以开发模式启动 Electron..."
+	cd $(DESKTOP_DIR) && npm run dev
+
 # ===== 完整发布构建 =====
 
-## release-all: 构建所有平台 + OpenWrt + Docker（完整发布）
+## release-all: 构建所有平台 + OpenWrt + Docker + Electron（完整发布）
 release-all: build-frontend build-all build-openwrt-all docker-build
 	@echo ""
 	@echo "✅ 所有平台构建完成:"
 	@ls -lh $(DIST_DIR)/
 	@echo ""
 	@echo "Docker 镜像: $(DOCKER_IMAGE):$(DOCKER_TAG)"
+	@echo ""
+	@echo "提示: 使用 'make build-electron-win/mac/linux' 分别构建各平台桌面应用"
 
 .PHONY: build-openwrt-amd64 build-openwrt-arm64 build-openwrt-mipsle \
         build-android-arm64 build-android-amd64 build-openwrt-all \
         docker-build docker-build-multiarch docker-push docker-up docker-down docker-logs \
         service-install service-uninstall service-start service-stop \
-        inno-build release-all
+        inno-build release-all \
+        install-deps-electron build-electron-ts build-electron \
+        build-electron-win build-electron-mac build-electron-linux dev-electron

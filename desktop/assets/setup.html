@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NetPanel 初始设置</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 16px;
+      padding: 40px;
+      width: 480px;
+      backdrop-filter: blur(10px);
+    }
+    .logo {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .logo h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #4fc3f7;
+      letter-spacing: 2px;
+    }
+    .logo p {
+      color: #90a4ae;
+      margin-top: 8px;
+      font-size: 14px;
+    }
+    .step-indicator {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 32px;
+    }
+    .step-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.2);
+      transition: background 0.3s;
+    }
+    .step-dot.active { background: #4fc3f7; }
+    .step-dot.done   { background: #66bb6a; }
+    .form-group { margin-bottom: 20px; }
+    label {
+      display: block;
+      font-size: 13px;
+      color: #90a4ae;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    input[type="number"], input[type="text"] {
+      width: 100%;
+      padding: 10px 14px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      color: #e0e0e0;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus { border-color: #4fc3f7; }
+    .hint { font-size: 12px; color: #607d8b; margin-top: 4px; }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-label { font-size: 14px; }
+    .toggle-desc  { font-size: 12px; color: #607d8b; margin-top: 2px; }
+    .switch {
+      position: relative;
+      width: 44px; height: 24px;
+      flex-shrink: 0;
+    }
+    .switch input { display: none; }
+    .slider {
+      position: absolute; inset: 0;
+      background: rgba(255,255,255,0.15);
+      border-radius: 24px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .slider::before {
+      content: '';
+      position: absolute;
+      width: 18px; height: 18px;
+      left: 3px; top: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.3s;
+    }
+    .switch input:checked + .slider { background: #4fc3f7; }
+    .switch input:checked + .slider::before { transform: translateX(20px); }
+    .btn-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 32px;
+    }
+    .btn {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { background: #4fc3f7; color: #0d1b2a; }
+    .btn-secondary { background: rgba(255,255,255,0.1); color: #e0e0e0; }
+    .btn:hover { opacity: 0.85; }
+    .status-msg {
+      text-align: center;
+      font-size: 13px;
+      color: #66bb6a;
+      margin-top: 16px;
+      min-height: 20px;
+    }
+    .status-msg.error { color: #ef5350; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <h1>⚡ NetPanel</h1>
+    <p>欢迎使用 NetPanel 桌面版，请完成初始设置</p>
+  </div>
+
+  <div class="step-indicator">
+    <div class="step-dot active" id="dot-0"></div>
+    <div class="step-dot" id="dot-1"></div>
+    <div class="step-dot" id="dot-2"></div>
+  </div>
+
+  <!-- 步骤 0：端口设置 -->
+  <div id="step-0">
+    <div class="form-group">
+      <label>管理界面端口</label>
+      <input type="number" id="port" value="8080" min="1024" max="65535" />
+      <div class="hint">NetPanel 将在此端口提供 Web 管理界面，默认 8080</div>
+    </div>
+    <div class="form-group">
+      <label>数据目录</label>
+      <input type="text" id="dataDir" placeholder="留空使用默认目录" />
+      <div class="hint">存储配置、数据库等文件，留空使用 ~/.netpanel</div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="goStep(1)">下一步 →</button>
+    </div>
+  </div>
+
+  <!-- 步骤 1：启动选项 -->
+  <div id="step-1" style="display:none">
+    <div class="toggle-row">
+      <div>
+        <div class="toggle-label">开机自动启动</div>
+        <div class="toggle-desc">登录系统后自动启动 NetPanel 桌面应用</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="autoLaunch" />
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="toggle-row">
+      <div>
+        <div class="toggle-label">启动时最小化到托盘</div>
+        <div class="toggle-desc">应用启动后直接最小化，不显示主窗口</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="startMinimized" />
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="goStep(0)">← 上一步</button>
+      <button class="btn btn-primary" onclick="goStep(2)">下一步 →</button>
+    </div>
+  </div>
+
+  <!-- 步骤 2：确认并完成 -->
+  <div id="step-2" style="display:none">
+    <div style="text-align:center; padding: 16px 0;">
+      <div style="font-size:48px; margin-bottom:16px;">🎉</div>
+      <div style="font-size:16px; font-weight:600; margin-bottom:8px;">设置完成！</div>
+      <div style="font-size:13px; color:#90a4ae; line-height:1.6;" id="summary"></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="goStep(1)">← 上一步</button>
+      <button class="btn btn-primary" onclick="finish()">🚀 启动 NetPanel</button>
+    </div>
+  </div>
+
+  <div class="status-msg" id="statusMsg"></div>
+</div>
+
+<script>
+  let currentStep = 0;
+
+  function goStep(n) {
+    document.getElementById('step-' + currentStep).style.display = 'none';
+    document.getElementById('dot-' + currentStep).classList.remove('active');
+    document.getElementById('dot-' + currentStep).classList.add('done');
+
+    currentStep = n;
+    document.getElementById('step-' + n).style.display = 'block';
+    document.getElementById('dot-' + n).classList.add('active');
+    document.getElementById('dot-' + n).classList.remove('done');
+
+    if (n === 2) {
+      const port = document.getElementById('port').value || '8080';
+      const dataDir = document.getElementById('dataDir').value || '~/.netpanel';
+      const autoLaunch = document.getElementById('autoLaunch').checked;
+      const startMin = document.getElementById('startMinimized').checked;
+      document.getElementById('summary').innerHTML =
+        `监听端口：<strong style="color:#4fc3f7">${port}</strong><br>` +
+        `数据目录：<strong style="color:#4fc3f7">${dataDir}</strong><br>` +
+        `开机自启：<strong style="color:#4fc3f7">${autoLaunch ? '是' : '否'}</strong><br>` +
+        `启动最小化：<strong style="color:#4fc3f7">${startMin ? '是' : '否'}</strong>`;
+    }
+  }
+
+  async function finish() {
+    const port = parseInt(document.getElementById('port').value) || 8080;
+    const dataDir = document.getElementById('dataDir').value.trim() || '';
+    const autoLaunch = document.getElementById('autoLaunch').checked;
+
+    const msg = document.getElementById('statusMsg');
+    msg.textContent = '正在保存配置并启动服务...';
+    msg.className = 'status-msg';
+
+    try {
+      if (window.netpanel) {
+        await window.netpanel.saveSetup({ port, dataDir, autoLaunch });
+      }
+      msg.textContent = '✅ 配置已保存，正在启动...';
+    } catch (e) {
+      msg.textContent = '❌ 保存失败：' + e;
+      msg.className = 'status-msg error';
+    }
+  }
+</script>
+</body>
+</html>

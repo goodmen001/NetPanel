@@ -330,6 +330,82 @@ jobs:
           path: release/*.tar.gz
           retention-days: 3
 
+  # ===== 构建 Windows InnoSetup 安装包 =====
+  build-inno-setup:
+    name: Build Windows Installer (InnoSetup)
+    runs-on: windows-latest
+    needs: [build-linux-windows]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Windows amd64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows-amd64
+          path: release-pkg/
+
+      - name: Extract netpanel.exe from package
+        shell: bash
+        run: |
+          mkdir -p dist
+          # 解压 zip 包，提取 netpanel.exe
+          cd release-pkg
+          unzip -j netpanel-windows-amd64.zip "*/netpanel.exe" -d ../dist/ 2>/dev/null || \
+          unzip -j netpanel-windows-amd64.zip "netpanel.exe" -d ../dist/ 2>/dev/null || true
+
+          # 同时提取 EasyTier 二进制到 dist/bin/
+          mkdir -p ../dist/bin
+          unzip -j netpanel-windows-amd64.zip "*/bin/easytier-core.exe" -d ../dist/bin/ 2>/dev/null || true
+          ls -la ../dist/
+
+      - name: Set VERSION env
+        shell: bash
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "VERSION=beta-${SHORT_SHA}" >> $GITHUB_ENV
+          echo "Building installer version: beta-${SHORT_SHA}"
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          choco install innosetup --no-progress -y
+          echo "C:\Program Files (x86)\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Build installer
+        shell: powershell
+        env:
+          VERSION: ${{ env.VERSION }}
+        run: |
+          # 确认 netpanel.exe 存在
+          if (-not (Test-Path "dist\netpanel-windows-amd64.exe")) {
+            Write-Error "dist\netpanel-windows-amd64.exe not found!"
+            exit 1
+          }
+          # 确保 dist 目录存在
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          # 运行 Inno Setup 编译器
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" scripts\setup.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host "Installer built successfully:"
+          Get-ChildItem dist\*.exe | Format-Table Name, Length
+
+      - name: Generate installer checksum
+        shell: bash
+        run: |
+          cd dist
+          sha256sum NetPanel-Setup-*.exe >> SHA256SUMS-installer.txt || \
+          certutil -hashfile NetPanel-Setup-*.exe SHA256 > SHA256SUMS-installer.txt
+          cat SHA256SUMS-installer.txt
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-installer
+          path: |
+            dist/NetPanel-Setup-*.exe
+            dist/SHA256SUMS-installer.txt
+          retention-days: 3
+
   # ===== 构建后端（OpenWrt musl 静态编译）=====
   # build-openwrt:
     # name: Build (openwrt-${{ matrix.goarch }})
@@ -417,11 +493,118 @@ jobs:
     #       path: release/*.tar.gz
     #       retention-days: 3
 
+  # ===== 构建 Electron 桌面应用（多平台）=====
+  build-electron:
+    name: Build Electron (${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    needs: [build-linux-windows, build-macos]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows
+            runner: windows-latest
+            backend_artifact: release-windows-amd64
+            backend_bin: netpanel.exe
+            pkg_ext: zip
+            electron_cmd: dist:win
+            arch_label: windows-x64
+          - os: macos
+            runner: macos-latest
+            backend_artifact: release-darwin-arm64
+            backend_bin: netpanel
+            pkg_ext: tar.gz
+            electron_cmd: dist:mac
+            arch_label: macos-arm64
+          - os: linux
+            runner: ubuntu-latest
+            backend_artifact: release-linux-amd64
+            backend_bin: netpanel
+            pkg_ext: tar.gz
+            electron_cmd: dist:linux
+            arch_label: linux-x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Download backend binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.backend_artifact }}
+          path: backend-pkg/
+
+      - name: Extract backend binary
+        shell: bash
+        run: |
+          mkdir -p desktop/resources
+          cd backend-pkg
+
+          # 解压对应格式的包
+          if [ "${{ matrix.pkg_ext }}" = "zip" ]; then
+            unzip -j *.zip "*/${{ matrix.backend_bin }}" -d ../desktop/resources/ 2>/dev/null || \
+            unzip -j *.zip "${{ matrix.backend_bin }}" -d ../desktop/resources/ 2>/dev/null || true
+          else
+            tar -xzf *.tar.gz --wildcards "*/${{ matrix.backend_bin }}" --strip-components=1 -C ../desktop/resources/ 2>/dev/null || \
+            tar -xzf *.tar.gz "${{ matrix.backend_bin }}" -C ../desktop/resources/ 2>/dev/null || true
+          fi
+
+          # 确认二进制存在并赋予执行权限
+          ls -la ../desktop/resources/
+          chmod +x ../desktop/resources/${{ matrix.backend_bin }} 2>/dev/null || true
+
+      - name: Set VERSION env
+        shell: bash
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "VERSION=beta-${SHORT_SHA}" >> $GITHUB_ENV
+
+      - name: Install Electron dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build TypeScript
+        working-directory: desktop
+        run: npm run build
+
+      - name: Build Electron package
+        working-directory: desktop
+        env:
+          VERSION: ${{ env.VERSION }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS 代码签名（可选，无证书时跳过）
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npm run ${{ matrix.electron_cmd }}
+
+      - name: List output files
+        shell: bash
+        run: |
+          echo "=== Electron build output ==="
+          ls -lh dist/electron/ 2>/dev/null || ls -lh desktop/dist/ 2>/dev/null || true
+
+      - name: Upload Electron artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-electron-${{ matrix.arch_label }}
+          path: |
+            dist/electron/*.exe
+            dist/electron/*.dmg
+            dist/electron/*.AppImage
+            dist/electron/*.zip
+            dist/electron/*.tar.gz
+          retention-days: 3
+
   # ===== 发布 Beta Release（滚动更新）=====
   release-beta:
     name: Publish Beta Release
     runs-on: ubuntu-latest
-    needs: [build-linux-windows, build-macos]
+    needs: [build-linux-windows, build-macos, build-inno-setup, build-electron]
     permissions:
       contents: write
     steps:
@@ -437,7 +620,16 @@ jobs:
       - name: Generate checksums
         run: |
           cd release
-          sha256sum * > SHA256SUMS.txt
+          # 合并安装包校验和（如果存在）
+          if [ -f SHA256SUMS-installer.txt ]; then
+            cat SHA256SUMS-installer.txt >> SHA256SUMS-all.txt
+            rm -f SHA256SUMS-installer.txt
+          fi
+          # 对所有压缩包和安装包生成校验和
+          sha256sum *.tar.gz *.zip *.exe 2>/dev/null >> SHA256SUMS-all.txt || true
+          # 去重并排序
+          sort -u SHA256SUMS-all.txt > SHA256SUMS.txt
+          rm -f SHA256SUMS-all.txt
           cat SHA256SUMS.txt
 
       - name: List release files
@@ -451,6 +643,9 @@ jobs:
           files: |
             release/*.tar.gz
             release/*.zip
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
             release/SHA256SUMS.txt
           generate_release_notes: false
           draft: false
@@ -462,21 +657,47 @@ jobs:
             > ⚠️ 这是自动构建的测试版本，可能不稳定，请勿用于生产环境。
 
             **提交**: ${{ github.sha }}
+            **版本**: `beta-${{ github.sha }}`
             **构建时间**: ${{ github.event.head_commit.timestamp }}
             **提交信息**: ${{ github.event.head_commit.message }}
 
-            ### 下载说明
+            ### 🖥️ 桌面应用（Electron，推荐新用户使用）
+
+            | 平台 | 文件 | 说明 |
+            |------|------|------|
+            | 🪟 Windows | `NetPanel-Desktop-*-windows-x64.exe` | NSIS 安装包，含服务管理 |
+            | 🍎 macOS | `NetPanel-Desktop-*-macos-arm64.dmg` | DMG 安装包（Apple Silicon）|
+            | 🐧 Linux | `NetPanel-Desktop-*-linux-x64.AppImage` | AppImage，无需安装依赖 |
+
+            ### 📦 服务端（命令行/服务器部署）
 
             | 平台 | 架构 | 文件 | 说明 |
             |------|------|------|------|
-            | Linux | x86_64 | `netpanel-linux-amd64.tar.gz` | glibc 动态链接 |
-            | Linux | ARM64 | `netpanel-linux-arm64.tar.gz` | glibc 动态链接 |
-            | Windows | x86_64 | `netpanel-windows-amd64.zip` | 需管理员权限 |
-            | Windows | ARM64 | `netpanel-windows-arm64.zip` | 需管理员权限 |
-            | macOS | Intel | `netpanel-darwin-amd64.tar.gz` | 需管理员权限 |
-            | macOS | Apple Silicon | `netpanel-darwin-arm64.tar.gz` | 需管理员权限 |
+            | 🪟 Windows | x86_64 | `NetPanel-Setup-*.exe` | **推荐** InnoSetup 安装向导，含服务注册 |
+            | 🪟 Windows | x86_64 | `netpanel-windows-amd64.zip` | 便携版，手动部署 |
+            | 🪟 Windows | ARM64 | `netpanel-windows-arm64.zip` | 便携版，手动部署 |
+            | 🐧 Linux | x86_64 | `netpanel-linux-amd64.tar.gz` | glibc 动态链接 |
+            | 🐧 Linux | ARM64 | `netpanel-linux-arm64.tar.gz` | glibc 动态链接 |
+            | 🍎 macOS | Intel | `netpanel-darwin-amd64.tar.gz` | 需管理员权限 |
+            | 🍎 macOS | Apple Silicon | `netpanel-darwin-arm64.tar.gz` | 需管理员权限 |
 
-            ### 校验文件完整性
+            ### 🚀 快速安装
+
+            **Windows 桌面版**：下载 `NetPanel-Desktop-*-windows-x64.exe`，双击安装即可。
+
+            **Windows 服务版**：下载 `NetPanel-Setup-*.exe`，以管理员身份运行安装向导。
+
+            **Linux 一键安装（服务端）**：
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install.sh | sudo bash
+            ```
+
+            **Linux 桌面版**：下载 `*.AppImage`，赋予执行权限后直接运行：
+            ```bash
+            chmod +x NetPanel-Desktop-*.AppImage && ./NetPanel-Desktop-*.AppImage
+            ```
+
+            ### 🔐 校验文件完整性
 
             ```bash
             sha256sum -c SHA256SUMS.txt

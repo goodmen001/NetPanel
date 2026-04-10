@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# NetPanel 一键安装脚本 (Linux)
-# 用法: curl -fsSL https://raw.githubusercontent.com/YOUR_ORG/netpanel/main/scripts/install.sh | bash
-# 或本地运行: bash install.sh [--version v0.1.0] [--port 8080] [--no-service]
+# NetPanel 一键安装脚本 (Linux / OpenWrt)
+# 用法:
+#   curl -fsSL https://raw.githubusercontent.com/YOUR_ORG/netpanel/main/scripts/install.sh | bash
+#   bash install.sh [--version v0.1.0] [--port 8080] [--dir /opt/netpanel] [--no-service]
 set -euo pipefail
 
 # ─── 颜色输出 ────────────────────────────────────────────────────────────────
@@ -12,7 +13,7 @@ warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
 # ─── 默认配置 ─────────────────────────────────────────────────────────────────
-REPO="YOUR_ORG/netpanel"
+REPO="${NETPANEL_REPO:-YOUR_ORG/netpanel}"
 VERSION="${NETPANEL_VERSION:-latest}"
 INSTALL_DIR="${NETPANEL_DIR:-/opt/netpanel}"
 DATA_DIR="${NETPANEL_DATA:-/var/lib/netpanel}"
@@ -25,35 +26,58 @@ BINARY_NAME="netpanel"
 # ─── 解析参数 ─────────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --version)  VERSION="$2";        shift 2 ;;
-    --port)     PORT="$2";           shift 2 ;;
-    --dir)      INSTALL_DIR="$2";    shift 2 ;;
+    --version)    VERSION="$2";      shift 2 ;;
+    --port)       PORT="$2";         shift 2 ;;
+    --dir)        INSTALL_DIR="$2";  shift 2 ;;
+    --data)       DATA_DIR="$2";     shift 2 ;;
     --no-service) REGISTER_SERVICE=false; shift ;;
     --help|-h)
       echo "用法: install.sh [选项]"
+      echo ""
+      echo "选项:"
       echo "  --version  <ver>   指定版本，如 v0.1.0（默认: latest）"
       echo "  --port     <port>  监听端口（默认: 8080）"
       echo "  --dir      <path>  安装目录（默认: /opt/netpanel）"
-      echo "  --no-service       不注册 systemd 服务"
+      echo "  --data     <path>  数据目录（默认: /var/lib/netpanel）"
+      echo "  --no-service       不注册系统服务"
+      echo ""
+      echo "环境变量:"
+      echo "  NETPANEL_REPO      GitHub 仓库（默认: YOUR_ORG/netpanel）"
+      echo "  NETPANEL_VERSION   版本号（默认: latest）"
+      echo "  NETPANEL_DIR       安装目录"
+      echo "  NETPANEL_DATA      数据目录"
+      echo "  NETPANEL_PORT      监听端口"
       exit 0 ;;
     *) warn "未知参数: $1"; shift ;;
   esac
 done
+
+# ─── 检查 root 权限 ───────────────────────────────────────────────────────────
+check_root() {
+  if [[ $EUID -ne 0 ]]; then
+    error "请以 root 权限运行此脚本（sudo bash install.sh）"
+  fi
+}
 
 # ─── 检测架构 ─────────────────────────────────────────────────────────────────
 detect_arch() {
   local arch
   arch=$(uname -m)
   case "$arch" in
-    x86_64|amd64)   echo "amd64" ;;
-    aarch64|arm64)  echo "arm64" ;;
-    armv7l|armv6l)  echo "arm" ;;
-    mips*)          echo "mips" ;;
-    *)              error "不支持的架构: $arch" ;;
+    x86_64|amd64)          echo "amd64" ;;
+    aarch64|arm64)         echo "arm64" ;;
+    armv7l|armv7)          echo "armv7" ;;
+    armv6l|armv6)          echo "armv6" ;;
+    mips64le)              echo "mips64le" ;;
+    mips64)                echo "mips64" ;;
+    mipsle|mipsel)         echo "mipsle" ;;
+    mips)                  echo "mips" ;;
+    riscv64)               echo "riscv64" ;;
+    *)                     error "不支持的架构: $arch" ;;
   esac
 }
 
-# ─── 检测发行版 ───────────────────────────────────────────────────────────────
+# ─── 检测操作系统 ─────────────────────────────────────────────────────────────
 detect_os() {
   if [[ -f /etc/openwrt_release ]]; then
     echo "openwrt"
@@ -66,19 +90,10 @@ detect_os() {
   fi
 }
 
-# ─── 获取最新版本 ─────────────────────────────────────────────────────────────
-get_latest_version() {
-  local ver
-  ver=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
-  [[ -z "$ver" ]] && error "无法获取最新版本，请使用 --version 手动指定"
-  echo "$ver"
-}
-
 # ─── 检查依赖 ─────────────────────────────────────────────────────────────────
 check_deps() {
   local missing=()
-  for cmd in curl tar; do
+  for cmd in curl; do
     command -v "$cmd" &>/dev/null || missing+=("$cmd")
   done
   if [[ ${#missing[@]} -gt 0 ]]; then
@@ -87,6 +102,8 @@ check_deps() {
       apt-get install -y "${missing[@]}" || error "安装依赖失败"
     elif command -v yum &>/dev/null; then
       yum install -y "${missing[@]}" || error "安装依赖失败"
+    elif command -v apk &>/dev/null; then
+      apk add --no-cache "${missing[@]}" || error "安装依赖失败"
     elif command -v opkg &>/dev/null; then
       opkg update && opkg install "${missing[@]}" || error "安装依赖失败"
     else
@@ -95,15 +112,27 @@ check_deps() {
   fi
 }
 
+# ─── 获取最新版本 ─────────────────────────────────────────────────────────────
+get_latest_version() {
+  local ver
+  ver=$(curl -fsSL --retry 3 --retry-delay 2 \
+    "https://api.github.com/repos/${REPO}/releases/latest" \
+    | grep '"tag_name"' | head -1 \
+    | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+  [[ -z "$ver" ]] && error "无法获取最新版本，请使用 --version 手动指定"
+  echo "$ver"
+}
+
 # ─── 下载二进制 ───────────────────────────────────────────────────────────────
 download_binary() {
-  local arch os_type download_url tmp_file
+  local arch os_type download_url tmp_file tmp_dir
   arch=$(detect_arch)
   os_type=$(detect_os)
 
-  # OpenWrt 使用专用包
+  # OpenWrt 使用专用包名
+  local pkg_arch="$arch"
   if [[ "$os_type" == "openwrt" ]]; then
-    arch="${arch}-openwrt"
+    pkg_arch="${arch}-openwrt"
   fi
 
   info "检测到系统: ${os_type} / ${arch}"
@@ -113,28 +142,38 @@ download_binary() {
     info "最新版本: $VERSION"
   fi
 
-  download_url="https://github.com/${REPO}/releases/download/${VERSION}/netpanel-linux-${arch}"
-  tmp_file=$(mktemp)
+  tmp_dir=$(mktemp -d)
+  tmp_file="${tmp_dir}/${BINARY_NAME}"
+
+  # 尝试直接下载二进制
+  local base_url="https://github.com/${REPO}/releases/download/${VERSION}"
+  local bin_url="${base_url}/netpanel-linux-${pkg_arch}"
 
   info "下载 NetPanel ${VERSION} (linux/${arch})..."
-  if ! curl -fsSL --progress-bar "$download_url" -o "$tmp_file"; then
-    # 尝试 .tar.gz 格式
-    download_url="${download_url}.tar.gz"
-    curl -fsSL --progress-bar "$download_url" -o "${tmp_file}.tar.gz" \
-      || error "下载失败: $download_url"
-    tar -xzf "${tmp_file}.tar.gz" -C "$(dirname "$tmp_file")" \
-      --wildcards "*/netpanel" --strip-components=1 2>/dev/null \
-      || tar -xzf "${tmp_file}.tar.gz" -C "$(dirname "$tmp_file")" netpanel 2>/dev/null \
-      || error "解压失败"
-    tmp_file="$(dirname "$tmp_file")/netpanel"
-    rm -f "${tmp_file}.tar.gz"
+
+  if curl -fsSL --retry 3 --retry-delay 2 --progress-bar "$bin_url" -o "$tmp_file" 2>/dev/null; then
+    chmod +x "$tmp_file"
+    echo "$tmp_file"
+    return
   fi
 
-  chmod +x "$tmp_file"
-  echo "$tmp_file"
+  # 尝试 tar.gz 格式
+  local tgz_url="${base_url}/netpanel-linux-${pkg_arch}.tar.gz"
+  info "尝试 tar.gz 格式: $tgz_url"
+  if curl -fsSL --retry 3 --retry-delay 2 --progress-bar "$tgz_url" -o "${tmp_dir}/netpanel.tar.gz"; then
+    tar -xzf "${tmp_dir}/netpanel.tar.gz" -C "$tmp_dir" \
+      --wildcards "*/netpanel" --strip-components=1 2>/dev/null \
+      || tar -xzf "${tmp_dir}/netpanel.tar.gz" -C "$tmp_dir" netpanel 2>/dev/null \
+      || error "解压失败: ${tgz_url}"
+    chmod +x "$tmp_file"
+    echo "$tmp_file"
+    return
+  fi
+
+  error "下载失败，请检查版本号和网络连接。尝试的地址:\n  ${bin_url}\n  ${tgz_url}"
 }
 
-# ─── 安装 ─────────────────────────────────────────────────────────────────────
+# ─── 安装二进制 ───────────────────────────────────────────────────────────────
 install_binary() {
   local tmp_file="$1"
 
@@ -143,20 +182,21 @@ install_binary() {
 
   # 备份旧版本
   if [[ -f "${INSTALL_DIR}/${BINARY_NAME}" ]]; then
-    cp "${INSTALL_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}.bak"
-    warn "已备份旧版本到 ${INSTALL_DIR}/${BINARY_NAME}.bak"
+    local bak_file="${INSTALL_DIR}/${BINARY_NAME}.bak"
+    cp "${INSTALL_DIR}/${BINARY_NAME}" "$bak_file"
+    warn "已备份旧版本到 ${bak_file}"
   fi
 
   mv "$tmp_file" "${INSTALL_DIR}/${BINARY_NAME}"
   chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 
-  # 创建软链接
+  # 创建软链接到 /usr/local/bin
   ln -sf "${INSTALL_DIR}/${BINARY_NAME}" /usr/local/bin/netpanel 2>/dev/null || true
 
   success "二进制文件安装完成: ${INSTALL_DIR}/${BINARY_NAME}"
 }
 
-# ─── 写入配置 ─────────────────────────────────────────────────────────────────
+# ─── 写入默认配置 ─────────────────────────────────────────────────────────────
 write_config() {
   local conf_file="${DATA_DIR}/config.yaml"
   if [[ -f "$conf_file" ]]; then
@@ -182,28 +222,39 @@ EOF
 }
 
 # ─── 注册 systemd 服务 ────────────────────────────────────────────────────────
-register_service() {
+register_systemd_service() {
   if ! command -v systemctl &>/dev/null; then
     warn "未检测到 systemd，跳过服务注册"
-    return
+    return 1
   fi
 
   info "注册 systemd 服务..."
   cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
-Description=NetPanel Network Manager
-After=network.target network-online.target
+Description=NetPanel - Network Management Panel
+Documentation=https://github.com/${REPO}
+After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple
-ExecStart=${INSTALL_DIR}/${BINARY_NAME} --service --port ${PORT} --data ${DATA_DIR}
+User=root
+Group=root
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=${INSTALL_DIR}/${BINARY_NAME} --port ${PORT} --data ${DATA_DIR}
+ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=5s
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=${SERVICE_NAME}
-WorkingDirectory=${DATA_DIR}
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_ADMIN CAP_NET_RAW
 
 [Install]
 WantedBy=multi-user.target
@@ -213,47 +264,65 @@ EOF
   systemctl enable "$SERVICE_NAME"
   systemctl restart "$SERVICE_NAME"
 
-  success "服务已注册并启动: $SERVICE_NAME"
-  info "查看日志: journalctl -u ${SERVICE_NAME} -f"
+  sleep 2
+  if systemctl is-active --quiet "$SERVICE_NAME"; then
+    success "systemd 服务已注册并启动: $SERVICE_NAME"
+    info "查看日志: journalctl -u ${SERVICE_NAME} -f"
+    return 0
+  else
+    warn "服务启动失败，请查看日志: journalctl -u ${SERVICE_NAME} -n 50"
+    return 1
+  fi
 }
 
-# ─── OpenWrt init.d 脚本 ──────────────────────────────────────────────────────
+# ─── 注册 OpenWrt procd 服务 ──────────────────────────────────────────────────
 register_openwrt_service() {
-  info "注册 OpenWrt init.d 服务..."
-  cat > "/etc/init.d/${SERVICE_NAME}" <<'EOF'
+  info "注册 OpenWrt procd init.d 服务..."
+  cat > "/etc/init.d/${SERVICE_NAME}" <<EOF
 #!/bin/sh /etc/rc.common
+# NetPanel init.d 服务脚本
 USE_PROCD=1
 START=99
 STOP=10
 
+BINARY="${INSTALL_DIR}/${BINARY_NAME}"
+DATA_DIR="${DATA_DIR}"
+PORT="${PORT}"
+
 start_service() {
   procd_open_instance
-  procd_set_param command /opt/netpanel/netpanel --service
-  procd_set_param respawn
+  procd_set_param command "\${BINARY}" --port "\${PORT}" --data "\${DATA_DIR}"
+  procd_set_param respawn \${respawn_threshold:-3600} \${respawn_timeout:-5} \${respawn_retry:-5}
   procd_set_param stdout 1
   procd_set_param stderr 1
+  procd_set_param pidfile /var/run/${SERVICE_NAME}.pid
   procd_close_instance
+}
+
+stop_service() {
+  procd_kill ${SERVICE_NAME}
+}
+
+reload_service() {
+  stop_service
+  start_service
 }
 EOF
   chmod +x "/etc/init.d/${SERVICE_NAME}"
   "/etc/init.d/${SERVICE_NAME}" enable
   "/etc/init.d/${SERVICE_NAME}" start
-  success "OpenWrt 服务已注册并启动"
+  success "OpenWrt procd 服务已注册并启动"
 }
 
 # ─── 主流程 ───────────────────────────────────────────────────────────────────
 main() {
   echo ""
-  echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
-  echo -e "${BLUE}║      NetPanel 一键安装脚本           ║${NC}"
-  echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
+  echo -e "${BLUE}╔══════════════════════════════════════════╗${NC}"
+  echo -e "${BLUE}║      NetPanel 一键安装脚本 (Linux)       ║${NC}"
+  echo -e "${BLUE}╚══════════════════════════════════════════╝${NC}"
   echo ""
 
-  # 检查 root 权限
-  if [[ $EUID -ne 0 ]]; then
-    error "请以 root 权限运行此脚本（sudo bash install.sh）"
-  fi
-
+  check_root
   check_deps
 
   local tmp_file
@@ -268,22 +337,33 @@ main() {
     if [[ "$os_type" == "openwrt" ]]; then
       register_openwrt_service
     else
-      register_service
+      register_systemd_service || warn "服务注册失败，可手动运行: ${INSTALL_DIR}/${BINARY_NAME} --port ${PORT} --data ${DATA_DIR}"
     fi
+  else
+    info "已跳过服务注册（--no-service）"
+    info "手动启动: ${INSTALL_DIR}/${BINARY_NAME} --port ${PORT} --data ${DATA_DIR}"
   fi
 
+  # 获取本机 IP
+  local ip
+  ip=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+
   echo ""
-  echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
-  echo -e "${GREEN}║  ✅ NetPanel 安装完成！                          ║${NC}"
-  echo -e "${GREEN}║                                                  ║${NC}"
-  echo -e "${GREEN}║  访问地址: http://$(hostname -I | awk '{print $1}'):${PORT}          ║${NC}"
-  echo -e "${GREEN}║  数据目录: ${DATA_DIR}                ║${NC}"
-  echo -e "${GREEN}║                                                  ║${NC}"
-  echo -e "${GREEN}║  服务管理:                                       ║${NC}"
-  echo -e "${GREEN}║    启动: systemctl start netpanel                ║${NC}"
-  echo -e "${GREEN}║    停止: systemctl stop netpanel                 ║${NC}"
-  echo -e "${GREEN}║    日志: journalctl -u netpanel -f               ║${NC}"
-  echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
+  echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+  echo -e "${GREEN}║  ✅ NetPanel ${VERSION} 安装完成！                   ║${NC}"
+  echo -e "${GREEN}║                                                      ║${NC}"
+  echo -e "${GREEN}║  访问地址: http://${ip}:${PORT}                      ║${NC}"
+  echo -e "${GREEN}║  安装目录: ${INSTALL_DIR}                            ║${NC}"
+  echo -e "${GREEN}║  数据目录: ${DATA_DIR}                               ║${NC}"
+  echo -e "${GREEN}║                                                      ║${NC}"
+  echo -e "${GREEN}║  服务管理（systemd）:                                ║${NC}"
+  echo -e "${GREEN}║    状态: systemctl status netpanel                   ║${NC}"
+  echo -e "${GREEN}║    启动: systemctl start netpanel                    ║${NC}"
+  echo -e "${GREEN}║    停止: systemctl stop netpanel                     ║${NC}"
+  echo -e "${GREEN}║    日志: journalctl -u netpanel -f                   ║${NC}"
+  echo -e "${GREEN}║                                                      ║${NC}"
+  echo -e "${GREEN}║  管理脚本: /usr/local/bin/netpanel                   ║${NC}"
+  echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
   echo ""
 }
 

@@ -251,7 +251,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/domain/certs/:id/step/create-order", certHandler.StepCreateOrder)
 	auth.POST("/domain/certs/:id/step/set-dns", certHandler.StepSetDNS)
 	auth.POST("/domain/certs/:id/step/validate", certHandler.StepValidate)
-	auth.POST("/domain/certs/:id/step/obtain", certHandler.StepObtain)
+		auth.POST("/domain/certs/:id/step/obtain", certHandler.StepObtain)
+		auth.POST("/domain/certs/:id/confirm-dns", certHandler.ConfirmDNS)
 
 	// 域名解析（子域名解析记录，按域名ID查询）
 	drHandler := handlers.NewDomainRecordHandler(opts.DB, opts.Log)

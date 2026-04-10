@@ -167,6 +167,8 @@ const DomainCert: React.FC = () => {
   const statusTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // DNS 账号校验警告
   const [dnsWarnings, setDnsWarnings] = useState<{ domain: string; missing: boolean }[]>([])
+  // DNS 模式（auto/manual）
+  const [dnsMode, setDnsMode] = useState<'auto' | 'manual'>('auto')
   const [form] = Form.useForm()
 
   // 自动刷新定时器
@@ -214,7 +216,11 @@ const DomainCert: React.FC = () => {
 
   // 校验当前表单中的域名是否已在 DNS 解析中添加
   const checkDnsWarnings = useCallback((entries: DomainEntry[], dnsAccountId?: number) => {
-    if (!dnsAccountId) { setDnsWarnings([]); return }
+    if (!dnsAccountId) {
+      setDnsWarnings([])
+      setDnsMode('manual')
+      return
+    }
     const accountDomains = domainInfoList
       .filter(d => d.account_id === dnsAccountId)
       .map(d => (d.name as string).toLowerCase())
@@ -227,10 +233,21 @@ const DomainCert: React.FC = () => {
       warnings.push({ domain: base, missing })
     }
     setDnsWarnings(warnings)
-  }, [domainInfoList])
+
+    // 如果有域名不在 DNS 解析中，自动切换为手动模式
+    const hasMissing = warnings.some(w => w.missing)
+    if (hasMissing) {
+      setDnsMode('manual')
+      form.setFieldsValue({ dns_mode: 'manual' })
+    } else {
+      setDnsMode('auto')
+      form.setFieldsValue({ dns_mode: 'auto' })
+    }
+  }, [domainInfoList, form])
 
   const handleOpen = (record?: any) => {
     setDnsWarnings([])
+    setDnsMode('auto')
     if (record) {
       setEditRecord(record)
       let domainEntries: DomainEntry[]
@@ -240,6 +257,7 @@ const DomainCert: React.FC = () => {
       } catch {
         domainEntries = [{ base: '', wildcard: false, includeRoot: true }]
       }
+      setDnsMode(record.dns_mode || 'auto')
       form.setFieldsValue({ ...record, domains: domainEntries })
     } else {
       setEditRecord(null)
@@ -251,6 +269,7 @@ const DomainCert: React.FC = () => {
         cert_account_id: undefined,
         cert_type: 'acme',
         renew_before_days: 7,
+        dns_mode: 'auto',
         domains: [{ base: '', wildcard: false, includeRoot: true }],
       })
     }
@@ -357,6 +376,9 @@ const DomainCert: React.FC = () => {
           break
         case 'obtain':
           await domainCertApi.stepObtain(id)
+          break
+        case 'confirm-dns':
+          await domainCertApi.confirmDNS(id)
           break
       }
       message.success(t('domainCert.stepSubmitted'))
@@ -540,21 +562,30 @@ const DomainCert: React.FC = () => {
     const missing = dnsWarnings.filter(w => w.missing)
     if (missing.length === 0) return null
     return (
-      <Alert
-        type="warning"
-        showIcon
-        icon={<ExclamationCircleOutlined />}
-        style={{ marginBottom: 12 }}
-        message={t('domainCert.dnsWarningTitle')}
-        description={
-          <Space wrap size={4}>
-            {missing.map(w => <Tag key={w.domain} color="warning">{w.domain}</Tag>)}
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              {t('domainCert.dnsWarningHint')}
-            </Text>
-          </Space>
-        }
-      />
+      <>
+        <Alert
+          type="warning"
+          showIcon
+          icon={<ExclamationCircleOutlined />}
+          style={{ marginBottom: 12 }}
+          message={t('domainCert.dnsWarningTitle')}
+          description={
+            <Space wrap size={4}>
+              {missing.map(w => <Tag key={w.domain} color="warning">{w.domain}</Tag>)}
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {t('domainCert.dnsWarningHint')}
+              </Text>
+            </Space>
+          }
+        />
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={t('domainCert.manualDnsModeAutoSet')}
+          description={t('domainCert.manualDnsModeAutoSetHint')}
+        />
+      </>
     )
   }
 
@@ -607,6 +638,11 @@ const DomainCert: React.FC = () => {
             <Descriptions.Item label={t('domainCert.currentStep')}>
               {status.acme_step || 0} / 4
             </Descriptions.Item>
+            {status.dns_mode === 'manual' && (
+              <Descriptions.Item label={t('domainCert.dnsMode')} span={2}>
+                <Tag color="orange">{t('domainCert.dnsModeManual')}</Tag>
+              </Descriptions.Item>
+            )}
             {status.acme_next_action && (
               <Descriptions.Item label={t('domainCert.nextAction')} span={2}>
                 <Space>
@@ -631,6 +667,15 @@ const DomainCert: React.FC = () => {
         {/* DNS 记录信息 */}
         {status.acme_dns_record && (
           <Card size="small" title={t('domainCert.dnsRecordInfo')} style={{ marginBottom: 16 }}>
+            {status.dns_mode === 'manual' && ['order_created', 'dns_set'].includes(status.status) && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message={t('domainCert.manualDnsHint')}
+                description={t('domainCert.manualDnsHintDesc')}
+              />
+            )}
             {status.acme_dns_record.split('\n').map((record: string, idx: number) => {
               const value = status.acme_dns_value?.split('\n')[idx] || ''
               return (
@@ -671,14 +716,27 @@ const DomainCert: React.FC = () => {
             >
               {t('domainCert.step1Title')}
             </Button>
-            <Button
-              size="small"
-              icon={<GlobalOutlined />}
-              onClick={() => handleStep(statusCert.id, 'set-dns')}
-              disabled={status.status !== 'order_created'}
-            >
-              {t('domainCert.step2Title')}
-            </Button>
+            {status.dns_mode !== 'manual' && (
+              <Button
+                size="small"
+                icon={<GlobalOutlined />}
+                onClick={() => handleStep(statusCert.id, 'set-dns')}
+                disabled={status.status !== 'order_created'}
+              >
+                {t('domainCert.step2Title')}
+              </Button>
+            )}
+            {status.dns_mode === 'manual' && (
+              <Button
+                size="small"
+                type="primary"
+                icon={<CheckCircleOutlined />}
+                onClick={() => handleStep(statusCert.id, 'confirm-dns')}
+                disabled={!['order_created', 'dns_set'].includes(status.status)}
+              >
+                {t('domainCert.confirmDns')}
+              </Button>
+            )}
             <Button
               size="small"
               icon={<AuditOutlined />}
@@ -698,7 +756,9 @@ const DomainCert: React.FC = () => {
           </Space>
           <div style={{ marginTop: 8 }}>
             <Text type="secondary" style={{ fontSize: 11 }}>
-              {t('domainCert.manualOpsHint')}
+              {status.dns_mode === 'manual'
+                ? t('domainCert.manualDnsOpsHint')
+                : t('domainCert.manualOpsHint')}
             </Text>
           </div>
         </Card>
@@ -871,6 +931,23 @@ const DomainCert: React.FC = () => {
                         </Select>
                       </Form.Item>
                       {renderDnsWarnings()}
+
+                      {/* DNS 模式选择 */}
+                      <Form.Item
+                        name="dns_mode"
+                        label={t('domainCert.dnsMode')}
+                        extra={t('domainCert.dnsModeHint')}
+                      >
+                        <Radio.Group
+                          value={dnsMode}
+                          onChange={(e) => {
+                            setDnsMode(e.target.value)
+                          }}
+                        >
+                          <Radio value="auto">{t('domainCert.dnsModeAuto')}</Radio>
+                          <Radio value="manual">{t('domainCert.dnsModeManual')}</Radio>
+                        </Radio.Group>
+                      </Form.Item>
                     </>
                   )}
                 </Form.Item>

@@ -293,18 +293,28 @@ func (m *Manager) StepCreateOrder(id uint) error {
 	// 序列化流程数据
 	flowDataJSON, _ := json.Marshal(flowData)
 
-	// 设置下一步操作时间（立即执行设置 DNS）
-	nextAction := time.Now().Add(5 * time.Second)
+	// 手动 DNS 模式：不自动执行设置 DNS，等待用户手动设置后确认
+	var nextAction *time.Time
+	if cert.DnsMode != "manual" {
+		// 自动模式：立即执行设置 DNS
+		t := time.Now().Add(5 * time.Second)
+		nextAction = &t
+	}
 
-	m.updateCert(id, map[string]interface{}{
-		"status":           "order_created",
-		"acme_step":        1,
-		"acme_data":        string(flowDataJSON),
-		"acme_dns_record":  strings.Join(dnsRecords, "\n"),
-		"acme_dns_value":   strings.Join(dnsValues, "\n"),
-		"acme_next_action": nextAction,
-		"last_error":       "",
-	})
+	updates := map[string]interface{}{
+		"status":          "order_created",
+		"acme_step":       1,
+		"acme_data":       string(flowDataJSON),
+		"acme_dns_record": strings.Join(dnsRecords, "\n"),
+		"acme_dns_value":  strings.Join(dnsValues, "\n"),
+		"last_error":      "",
+	}
+	if nextAction != nil {
+		updates["acme_next_action"] = nextAction
+	} else {
+		updates["acme_next_action"] = nil
+	}
+	m.updateCert(id, updates)
 
 	m.log.Infof("[证书][%s] 订单创建成功，需要设置 %d 条 DNS 记录", cert.Name, len(flowData.Challenges))
 	return nil
@@ -322,6 +332,18 @@ func (m *Manager) StepSetDNS(id uint) error {
 
 	if cert.Status != "order_created" && cert.Status != "applying" {
 		return fmt.Errorf("当前状态 %s 不允许设置 DNS", cert.Status)
+	}
+
+	// 手动 DNS 模式：跳过自动设置，直接更新状态为 dns_set（等待用户手动确认验证）
+	if cert.DnsMode == "manual" {
+		m.log.Infof("[证书][%s] 手动 DNS 模式：跳过自动设置，等待用户手动设置 DNS 记录", cert.Name)
+		m.updateCert(id, map[string]interface{}{
+			"status":           "dns_set",
+			"acme_step":        2,
+			"acme_next_action": nil,
+			"last_error":       "",
+		})
+		return nil
 	}
 
 	m.log.Infof("[证书][%s] 步骤2：设置 DNS 解析记录", cert.Name)
@@ -389,7 +411,7 @@ func (m *Manager) StepValidate(id uint) error {
 		return m.setError(id, fmt.Errorf("恢复私钥失败: %w", err))
 	}
 
-	// 重建 ACME 客户端
+	// 重建 ACME 客户端（使用已注册的账户 URL 作为 kid）
 	email, _, _ := m.getAccountInfo(&cert)
 	user := &acmeUser{Email: email, key: privateKey}
 
@@ -398,7 +420,7 @@ func (m *Manager) StepValidate(id uint) error {
 	config.HTTPClient = &http.Client{Timeout: 30 * time.Second}
 	config.CADirURL = m.getCADirURL(cert.CA)
 
-	core, err := api.New(config.HTTPClient, config.UserAgent, config.CADirURL, "", privateKey)
+	core, err := api.New(config.HTTPClient, config.UserAgent, config.CADirURL, flowData.RegistrationURI, privateKey)
 	if err != nil {
 		return m.setError(id, fmt.Errorf("创建 ACME 客户端失败: %w", err))
 	}
@@ -455,7 +477,7 @@ func (m *Manager) StepObtain(id uint) error {
 		return m.setError(id, fmt.Errorf("恢复私钥失败: %w", err))
 	}
 
-	// 重建 ACME 客户端
+	// 重建 ACME 客户端（使用已注册的账户 URL 作为 kid）
 	email, _, _ := m.getAccountInfo(&cert)
 	user := &acmeUser{Email: email, key: privateKey}
 
@@ -464,7 +486,7 @@ func (m *Manager) StepObtain(id uint) error {
 	config.HTTPClient = &http.Client{Timeout: 30 * time.Second}
 	config.CADirURL = m.getCADirURL(cert.CA)
 
-	core, err := api.New(config.HTTPClient, config.UserAgent, config.CADirURL, "", privateKey)
+	core, err := api.New(config.HTTPClient, config.UserAgent, config.CADirURL, flowData.RegistrationURI, privateKey)
 	if err != nil {
 		return m.setError(id, fmt.Errorf("创建 ACME 客户端失败: %w", err))
 	}
@@ -586,6 +608,7 @@ func (m *Manager) GetStatus(id uint) map[string]interface{} {
 		"acme_dns_record": cert.AcmeDnsRecord,
 		"acme_dns_value":  cert.AcmeDnsValue,
 		"last_error":      cert.LastError,
+		"dns_mode":        cert.DnsMode,
 	}
 
 	if cert.AcmeNextAction != nil {
@@ -596,6 +619,32 @@ func (m *Manager) GetStatus(id uint) map[string]interface{} {
 	}
 
 	return result
+}
+
+// ConfirmDNS 手动确认 DNS 已设置（手动模式下，用户设置完 DNS 后调用此方法触发验证）
+func (m *Manager) ConfirmDNS(id uint) error {
+	var cert model.DomainCert
+	if err := m.db.First(&cert, id).Error; err != nil {
+		return fmt.Errorf("证书配置不存在: %w", err)
+	}
+
+	// 只有 order_created 或 dns_set 状态才允许确认
+	if cert.Status != "order_created" && cert.Status != "dns_set" {
+		return fmt.Errorf("当前状态 %s 不允许确认 DNS", cert.Status)
+	}
+
+	m.log.Infof("[证书][%s] 用户确认 DNS 已设置，将在 10 秒后提交验证", cert.Name)
+
+	// 更新状态为 dns_set，并设置下一步操作时间（10 秒后提交验证）
+	nextAction := time.Now().Add(10 * time.Second)
+	m.updateCert(id, map[string]interface{}{
+		"status":           "dns_set",
+		"acme_step":        2,
+		"acme_next_action": nextAction,
+		"last_error":       "",
+	})
+
+	return nil
 }
 
 // ===== 辅助方法 =====
@@ -627,7 +676,7 @@ func (m *Manager) getCADirURL(ca string) string {
 	}
 }
 
-// registerAccount 注册 ACME 账号
+// registerAccount 注册 ACME 账号（直接使用 core.Accounts API，确保 kid 自动设置到同一个 core 上）
 func (m *Manager) registerAccount(core *api.Core, user *acmeUser, ca, eabKid, eabHmacKey string) (*registration.Resource, error) {
 	needEAB := strings.ToLower(ca) == "zerossl" || strings.ToLower(ca) == "google"
 
@@ -637,34 +686,27 @@ func (m *Manager) registerAccount(core *api.Core, user *acmeUser, ca, eabKid, ea
 		}
 	}
 
-	// 使用 lego 的高级客户端注册
-	config := lego.NewConfig(user)
-	config.Certificate.KeyType = certcrypto.RSA2048
-	config.HTTPClient = &http.Client{Timeout: 30 * time.Second}
-	config.CADirURL = m.getCADirURL(ca)
-
-	client, err := lego.NewClient(config)
-	if err != nil {
-		return nil, fmt.Errorf("创建注册客户端失败: %w", err)
+	accMsg := acme.Account{
+		TermsOfServiceAgreed: true,
+		Contact:              []string{"mailto:" + user.Email},
 	}
+
+	var account acme.ExtendedAccount
+	var err error
 
 	if needEAB {
-		reg, err := client.Registration.RegisterWithExternalAccountBinding(registration.RegisterEABOptions{
-			TermsOfServiceAgreed: true,
-			Kid:                  eabKid,
-			HmacEncoded:          eabHmacKey,
-		})
-		if err != nil {
-			return nil, err
-		}
-		return reg, nil
+		account, err = core.Accounts.NewEAB(accMsg, eabKid, eabHmacKey)
+	} else {
+		account, err = core.Accounts.New(accMsg)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("注册 ACME 账号失败: %w", err)
 	}
 
-	reg, err := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
-	if err != nil {
-		return nil, err
-	}
-	return reg, nil
+	return &registration.Resource{
+		URI:  account.Location,
+		Body: account.Account,
+	}, nil
 }
 
 // getDNSCredentials 获取 DNS 验证凭据
@@ -691,22 +733,31 @@ func (m *Manager) setDNSTxtRecord(providerName, accessID, accessSecret, domain, 
 	return provider.UpdateRecord(acmeDomain, "TXT", value, "60")
 }
 
-// cleanupDNSRecords 清理 ACME DNS 验证记录
+// cleanupDNSRecords 清理 ACME DNS 验证记录（真正删除 TXT 记录）
 func (m *Manager) cleanupDNSRecords(cert *model.DomainCert, flowData *acmeFlowData) {
+	// 手动 DNS 模式下不自动清理（用户自行管理）
+	if cert.DnsMode == "manual" {
+		m.log.Infof("[证书][%s] 手动 DNS 模式：跳过自动清理 DNS 记录", cert.Name)
+		return
+	}
+
 	accessID, accessSecret, providerName, err := m.getDNSCredentials(cert)
 	if err != nil {
 		m.log.Warnf("[证书][%s] 清理 DNS 记录失败（无法获取凭据）: %v", cert.Name, err)
 		return
 	}
 
+	provider := ddns.NewProvider(providerName, accessID, accessSecret)
+	if provider == nil {
+		m.log.Warnf("[证书][%s] 清理 DNS 记录失败（不支持的服务商: %s）", cert.Name, providerName)
+		return
+	}
+
 	for domain := range flowData.Challenges {
 		acmeDomain := fmt.Sprintf("_acme-challenge.%s", domain)
-		m.log.Infof("[证书][%s] 清理 DNS TXT 记录: %s", cert.Name, acmeDomain)
-		// 尝试删除，忽略错误
-		provider := ddns.NewProvider(providerName, accessID, accessSecret)
-		if provider != nil {
-			// 设置为空值来"清理"（部分服务商不支持删除，设置空值也可以）
-			_ = provider.UpdateRecord(acmeDomain, "TXT", "cleaned", "60")
+		m.log.Infof("[证书][%s] 删除 DNS TXT 记录: %s", cert.Name, acmeDomain)
+		if err := provider.DeleteRecord(acmeDomain, "TXT"); err != nil {
+			m.log.Warnf("[证书][%s] 删除 DNS TXT 记录失败 (%s): %v", cert.Name, acmeDomain, err)
 		}
 	}
 }

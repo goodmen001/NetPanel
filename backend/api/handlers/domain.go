@@ -1142,9 +1142,55 @@ func (h *CertHandler) Create(c *gin.Context) {
 	}
 	cert.Status = "pending"
 	cert.AcmeStep = 0
+
+	// 如果是 ACME 类型且使用 DNS 验证，校验域名是否在 DNS 域名解析中
+	if cert.CertType != "manual" && cert.ChallengeType == "dns" && cert.DomainAccountID > 0 {
+		var domains []string
+		if err := json.Unmarshal([]byte(cert.Domains), &domains); err == nil && len(domains) > 0 {
+			// 查询该 DNS 账号下的所有域名
+			var domainInfos []model.DomainInfo
+			h.db.Where("account_id = ?", cert.DomainAccountID).Find(&domainInfos)
+
+			accountDomains := make(map[string]bool)
+			for _, di := range domainInfos {
+				accountDomains[strings.ToLower(di.Name)] = true
+			}
+
+			// 检查每个域名的根域名是否在 DNS 解析中
+			var missingDomains []string
+			for _, d := range domains {
+				d = strings.TrimPrefix(d, "*.")
+				rootDomain := extractRootDomain(d)
+				if !accountDomains[strings.ToLower(rootDomain)] {
+					missingDomains = append(missingDomains, rootDomain)
+				}
+			}
+
+			// 如果有域名不在 DNS 解析中，且未指定手动模式，则自动设为手动模式
+			if len(missingDomains) > 0 && cert.DnsMode != "manual" {
+				cert.DnsMode = "manual"
+			}
+		}
+	}
+
+	// 如果没有选择 DNS 账号，自动设为手动模式
+	if cert.CertType != "manual" && cert.ChallengeType == "dns" && cert.DomainAccountID == 0 {
+		cert.DnsMode = "manual"
+	}
+
 	h.db.Create(&cert)
 	logger.WriteLog("info", "cert", fmt.Sprintf("创建域名证书 [%d]", cert.ID))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": cert, "message": "创建成功"})
+}
+
+// extractRootDomain 从域名中提取根域名
+// 例如: www.example.com -> example.com, _acme-challenge.sub.example.com -> example.com
+func extractRootDomain(domain string) string {
+	parts := strings.Split(domain, ".")
+	if len(parts) <= 2 {
+		return domain
+	}
+	return strings.Join(parts[len(parts)-2:], ".")
 }
 
 func (h *CertHandler) Update(c *gin.Context) {
@@ -1248,6 +1294,19 @@ func (h *CertHandler) StepObtain(c *gin.Context) {
 	}()
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取证书任务已提交"})
+}
+
+// ConfirmDNS 手动确认 DNS 已设置（手动模式下用户设置完 DNS 后调用）
+func (h *CertHandler) ConfirmDNS(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	logger.WriteLog("info", "cert", fmt.Sprintf("手动确认DNS已设置 [%d]", id))
+
+	if err := h.certMgr.ConfirmDNS(uint(id)); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已确认 DNS 设置，即将提交验证"})
 }
 
 // ===== 域名解析 =====

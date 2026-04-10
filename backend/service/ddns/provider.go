@@ -27,6 +27,10 @@ type DNSProvider interface {
 	// ip: 新的 IP 地址
 	// ttl: TTL 字符串（如 "600"）
 	UpdateRecord(domain, recordType, ip, ttl string) error
+	// DeleteRecord 删除 DNS 记录
+	// domain: 完整域名（如 _acme-challenge.example.com）
+	// recordType: 记录类型（如 TXT）
+	DeleteRecord(domain, recordType string) error
 }
 
 // NewProvider 创建 DNS 服务商实例
@@ -237,6 +241,42 @@ func (p *AliDNSProvider) UpdateRecord(domain, recordType, ip, ttl string) error 
 	return nil
 }
 
+// DeleteRecord 阿里云删除 DNS 记录
+func (p *AliDNSProvider) DeleteRecord(domain, recordType string) error {
+	rr, rootDomain := splitDomain(domain)
+
+	// 查询现有记录
+	listResp, err := p.aliRequest("DescribeDomainRecords", map[string]string{
+		"DomainName": rootDomain,
+		"RRKeyWord":  rr,
+		"Type":       recordType,
+	})
+	if err != nil {
+		return fmt.Errorf("查询阿里云 DNS 记录失败: %w", err)
+	}
+
+	var listResult struct {
+		DomainRecords struct {
+			Record []struct {
+				RecordId string `json:"RecordId"`
+			} `json:"Record"`
+		} `json:"DomainRecords"`
+	}
+	if err := json.Unmarshal(listResp, &listResult); err != nil {
+		return fmt.Errorf("解析阿里云 DNS 响应失败: %w", err)
+	}
+
+	for _, record := range listResult.DomainRecords.Record {
+		_, err = p.aliRequest("DeleteDomainRecord", map[string]string{
+			"RecordId": record.RecordId,
+		})
+		if err != nil {
+			return fmt.Errorf("删除阿里云 DNS 记录失败: %w", err)
+		}
+	}
+	return nil
+}
+
 // ===== Cloudflare =====
 
 // CloudflareProvider Cloudflare DNS 服务商
@@ -339,6 +379,45 @@ func (p *CloudflareProvider) UpdateRecord(domain, recordType, ip, ttl string) er
 		)
 		if err != nil {
 			return fmt.Errorf("新增 Cloudflare DNS 记录失败: %w", err)
+		}
+	}
+	return nil
+}
+
+// DeleteRecord Cloudflare 删除 DNS 记录
+func (p *CloudflareProvider) DeleteRecord(domain, recordType string) error {
+	_, rootDomain := splitDomain(domain)
+	zoneID, err := p.getZoneID(rootDomain)
+	if err != nil {
+		return err
+	}
+
+	// 查询现有记录
+	body, err := httpGet(
+		fmt.Sprintf("%s/zones/%s/dns_records?type=%s&name=%s", cfAPIBase, zoneID, recordType, domain),
+		p.cfHeaders(),
+	)
+	if err != nil {
+		return fmt.Errorf("查询 Cloudflare DNS 记录失败: %w", err)
+	}
+
+	var listResult struct {
+		Result []struct {
+			ID string `json:"id"`
+		} `json:"result"`
+		Success bool `json:"success"`
+	}
+	if err := json.Unmarshal(body, &listResult); err != nil {
+		return fmt.Errorf("解析 Cloudflare DNS 响应失败: %w", err)
+	}
+
+	for _, record := range listResult.Result {
+		_, err = httpJSON("DELETE",
+			fmt.Sprintf("%s/zones/%s/dns_records/%s", cfAPIBase, zoneID, record.ID),
+			p.cfHeaders(), nil,
+		)
+		if err != nil {
+			return fmt.Errorf("删除 Cloudflare DNS 记录失败: %w", err)
 		}
 	}
 	return nil
@@ -515,6 +594,50 @@ func (p *DnspodProvider) UpdateRecord(domain, recordType, ip, ttl string) error 
 	return nil
 }
 
+// DeleteRecord DNSPod 删除 DNS 记录
+func (p *DnspodProvider) DeleteRecord(domain, recordType string) error {
+	rr, rootDomain := splitDomain(domain)
+
+	// 查询现有记录
+	listBody, err := p.dnspodRequest("DescribeRecordList", map[string]interface{}{
+		"Domain":     rootDomain,
+		"Subdomain":  rr,
+		"RecordType": recordType,
+	})
+	if err != nil {
+		return fmt.Errorf("查询 DNSPod 记录失败: %w", err)
+	}
+
+	var listResult struct {
+		Response struct {
+			RecordList []struct {
+				RecordId uint `json:"RecordId"`
+			} `json:"RecordList"`
+			Error *struct {
+				Message string `json:"Message"`
+			} `json:"Error"`
+		} `json:"Response"`
+	}
+	if err := json.Unmarshal(listBody, &listResult); err != nil {
+		return fmt.Errorf("解析 DNSPod 响应失败: %w", err)
+	}
+	if listResult.Response.Error != nil {
+		// 如果是记录不存在的错误，忽略
+		return nil
+	}
+
+	for _, record := range listResult.Response.RecordList {
+		_, err = p.dnspodRequest("DeleteRecord", map[string]interface{}{
+			"Domain":   rootDomain,
+			"RecordId": record.RecordId,
+		})
+		if err != nil {
+			return fmt.Errorf("删除 DNSPod 记录失败: %w", err)
+		}
+	}
+	return nil
+}
+
 // ===== Webhook =====
 
 // WebhookProvider Webhook 服务商
@@ -570,6 +693,12 @@ func (p *WebhookProvider) UpdateRecord(domain, recordType, ip, ttl string) error
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("Webhook 响应错误 HTTP %d: %s", resp.StatusCode, string(body))
 	}
+	return nil
+}
+
+// DeleteRecord Webhook 删除 DNS 记录（不支持，忽略）
+func (p *WebhookProvider) DeleteRecord(domain, recordType string) error {
+	// Webhook 不支持删除操作，忽略
 	return nil
 }
 

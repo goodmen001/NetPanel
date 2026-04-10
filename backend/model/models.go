@@ -736,6 +736,8 @@ type DomainCert struct {
 	CA            string `gorm:"size:50;default:'letsencrypt'" json:"ca"` // letsencrypt/zerossl/buypass/google
 	ChallengeType string `gorm:"size:20;default:'dns'" json:"challenge_type"` // dns/http
 	DomainAccountID uint `json:"domain_account_id"`
+	// DNS 验证模式：auto（自动设置DNS）/ manual（手动设置DNS）
+	DnsMode string `gorm:"size:20;default:'auto'" json:"dns_mode"`
 	// 关联证书账号（ACME CA 账号）
 	CertAccountID uint        `json:"cert_account_id"`
 	CertAccount   CertAccount `gorm:"foreignKey:CertAccountID" json:"cert_account,omitempty"`

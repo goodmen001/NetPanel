@@ -170,6 +170,8 @@ export const domainCertApi = {
   stepSetDNS: (id: number) => request.post(`/v1/domain/certs/${id}/step/set-dns`),
   stepValidate: (id: number) => request.post(`/v1/domain/certs/${id}/step/validate`),
   stepObtain: (id: number) => request.post(`/v1/domain/certs/${id}/step/obtain`),
+  // 手动确认 DNS 已设置
+  confirmDNS: (id: number) => request.post(`/v1/domain/certs/${id}/confirm-dns`),
   // 解析 PEM 证书内容，返回域名列表
   parseCert: (data: { cert_content: string }) => request.post('/v1/domain/certs/parse', data),
 }

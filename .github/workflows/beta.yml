@@ -376,11 +376,14 @@ jobs:
         env:
           VERSION: ${{ env.VERSION }}
         run: |
-          # 确认 netpanel.exe 存在
-          if (-not (Test-Path "dist\netpanel-windows-amd64.exe")) {
-            Write-Error "dist\netpanel-windows-amd64.exe not found!"
+          # 确认解压后的 netpanel.exe 存在（zip 包内文件名为 netpanel.exe）
+          if (-not (Test-Path "dist\netpanel.exe")) {
+            Write-Error "dist\netpanel.exe not found! Contents of dist/:"
+            Get-ChildItem dist\ -ErrorAction SilentlyContinue
             exit 1
           }
+          # setup.iss 引用的是 netpanel-windows-amd64.exe，创建副本
+          Copy-Item "dist\netpanel.exe" "dist\netpanel-windows-amd64.exe" -Force
           # 确保 dist 目录存在
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           # 运行 Inno Setup 编译器
@@ -494,6 +497,7 @@ jobs:
     #       retention-days: 3
 
   # ===== 构建 Electron 桌面应用（多平台）=====
+  # 注意：此 job 独立运行，失败不影响 release-beta 主发布流程
   build-electron:
     name: Build Electron (${{ matrix.os }})
     runs-on: ${{ matrix.runner }}
@@ -531,8 +535,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: desktop/package-lock.json
+          # 不使用 cache，desktop/package-lock.json 在首次 npm install 前不存在
 
       - name: Download backend binary artifact
         uses: actions/download-artifact@v4
@@ -601,35 +604,39 @@ jobs:
           retention-days: 3
 
   # ===== 发布 Beta Release（滚动更新）=====
+  # 仅依赖核心构建 job，InnoSetup 和 Electron 构建失败不阻塞发布
   release-beta:
     name: Publish Beta Release
     runs-on: ubuntu-latest
-    needs: [build-linux-windows, build-macos, build-inno-setup, build-electron]
+    needs: [build-linux-windows, build-macos]
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all release artifacts
+      - name: Download core release artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: release-*
+          # 只下载核心二进制包（linux/windows/darwin），不依赖可选构建产物
+          pattern: release-{linux,windows,darwin}-*
+          path: release/
+          merge-multiple: true
+
+      - name: Download optional artifacts (best-effort)
+        # 尝试下载 InnoSetup 安装包和 Electron 包，失败时忽略
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-{windows-installer,electron-*}
           path: release/
           merge-multiple: true
 
       - name: Generate checksums
         run: |
           cd release
-          # 合并安装包校验和（如果存在）
-          if [ -f SHA256SUMS-installer.txt ]; then
-            cat SHA256SUMS-installer.txt >> SHA256SUMS-all.txt
-            rm -f SHA256SUMS-installer.txt
-          fi
-          # 对所有压缩包和安装包生成校验和
-          sha256sum *.tar.gz *.zip *.exe 2>/dev/null >> SHA256SUMS-all.txt || true
-          # 去重并排序
-          sort -u SHA256SUMS-all.txt > SHA256SUMS.txt
-          rm -f SHA256SUMS-all.txt
+          # 对所有存在的文件生成校验和（忽略不存在的类型）
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.exe' -o -name '*.dmg' -o -name '*.AppImage' \) \
+            -exec sha256sum {} \; 2>/dev/null | sed 's|\./||' | sort -u > SHA256SUMS.txt || true
           cat SHA256SUMS.txt
 
       - name: List release files

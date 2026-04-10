@@ -134,20 +134,20 @@ EASYTIER_VERSION ?= 1.2.1
 ## download-easytier: 下载当前平台的 EasyTier 二进制
 download-easytier:
 	@echo ">>> 下载 EasyTier v$(EASYTIER_VERSION)..."
-	@mkdir -p $(DIST_DIR)/bin
+	@mkdir -p data/bin
 	@OS=$(shell go env GOOS); ARCH=$(shell go env GOARCH); \
 	if [ "$$OS" = "windows" ]; then \
 		curl -fsSL "https://github.com/EasyTier/EasyTier/releases/download/v$(EASYTIER_VERSION)/easytier-$$OS-$$ARCH-v$(EASYTIER_VERSION).zip" \
 			-o /tmp/easytier.zip && \
-		unzip -j /tmp/easytier.zip "easytier-core.exe" -d $(DIST_DIR)/bin/; \
+		unzip -j /tmp/easytier.zip "easytier-core.exe" -d data/bin/; \
 	else \
 		curl -fsSL "https://github.com/EasyTier/EasyTier/releases/download/v$(EASYTIER_VERSION)/easytier-$$OS-$$ARCH-v$(EASYTIER_VERSION).tar.gz" \
 			-o /tmp/easytier.tar.gz && \
-		tar -xzf /tmp/easytier.tar.gz -C $(DIST_DIR)/bin/ --wildcards "*/easytier-core" --strip-components=1 2>/dev/null || \
-		tar -xzf /tmp/easytier.tar.gz -C $(DIST_DIR)/bin/ easytier-core 2>/dev/null || true; \
-		chmod +x $(DIST_DIR)/bin/easytier-core; \
+		tar -xzf /tmp/easytier.tar.gz -C data/bin/ --wildcards "*/easytier-core" --strip-components=1 2>/dev/null || \
+		tar -xzf /tmp/easytier.tar.gz -C data/bin/ easytier-core 2>/dev/null || true; \
+		chmod +x data/bin/easytier-core; \
 	fi
-	@echo ">>> EasyTier 下载完成: $(DIST_DIR)/bin/"
+	@echo ">>> EasyTier 下载完成: data/bin/"
 
 ## run: 构建并运行（开发用）
 run: build

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <!-- 外圆背景 -->
+  <circle cx="50" cy="50" r="48" fill="#1677ff" opacity="0.1"/>
+  <!-- 网络节点连线 -->
+  <line x1="50" y1="20" x2="20" y2="65" stroke="#1677ff" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="50" y1="20" x2="80" y2="65" stroke="#1677ff" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="20" y1="65" x2="80" y2="65" stroke="#1677ff" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="50" y1="20" x2="50" y2="65" stroke="#1677ff" stroke-width="1.5" stroke-dasharray="4 3" stroke-linecap="round"/>
+  <!-- 节点圆点 -->
+  <circle cx="50" cy="20" r="7" fill="#1677ff"/>
+  <circle cx="20" cy="65" r="7" fill="#1677ff"/>
+  <circle cx="80" cy="65" r="7" fill="#1677ff"/>
+  <!-- 中心小圆 -->
+  <circle cx="50" cy="65" r="4" fill="#ffffff" stroke="#1677ff" stroke-width="2"/>
+  <!-- 箭头/穿透符号 -->
+  <path d="M44 42 L50 35 L56 42" stroke="#1677ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <line x1="50" y1="35" x2="50" y2="50" stroke="#1677ff" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

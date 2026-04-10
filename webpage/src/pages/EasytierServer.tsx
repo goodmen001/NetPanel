@@ -1,14 +1,15 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   Table, Button, Space, Switch, Modal, Form, Input,
   Popconfirm, message, Typography, Tag, Tooltip, Row, Col,
-  Checkbox, Radio, Select, Tabs, InputNumber,
+  Checkbox, Radio, Select, Tabs, InputNumber, Spin, Alert,
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined,
   PlayCircleOutlined, StopOutlined, InfoCircleOutlined, MinusCircleOutlined,
   SettingOutlined, WifiOutlined, SafetyOutlined, ThunderboltOutlined,
   GlobalOutlined, ApiOutlined, FileTextOutlined,
+  ReloadOutlined, NodeIndexOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { easytierServerApi } from '../api'
@@ -60,6 +61,19 @@ const EasytierServer: React.FC = () => {
   const [quickForm] = Form.useForm()
   const [form] = Form.useForm()
 
+  // 日志弹窗
+  const [logModalOpen, setLogModalOpen] = useState(false)
+  const [logRecord, setLogRecord] = useState<any>(null)
+  const [logs, setLogs] = useState<string[]>([])
+  const [logLoading, setLogLoading] = useState(false)
+  const logEndRef = useRef<HTMLDivElement>(null)
+
+  // 节点信息弹窗
+  const [peersModalOpen, setPeersModalOpen] = useState(false)
+  const [peersRecord, setPeersRecord] = useState<any>(null)
+  const [peersInfo, setPeersInfo] = useState<any>(null)
+  const [peersLoading, setPeersLoading] = useState(false)
+
   const fetchData = async () => {
     setLoading(true)
     try {
@@ -68,6 +82,45 @@ const EasytierServer: React.FC = () => {
     } finally { setLoading(false) }
   }
   useEffect(() => { fetchData() }, [])
+
+  const fetchLogs = async (record: any) => {
+    setLogLoading(true)
+    try {
+      const res: any = await api.getLogs(record.id)
+      setLogs(res.data || [])
+      setTimeout(() => logEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+    } catch (e) {
+      setLogs([])
+    } finally {
+      setLogLoading(false)
+    }
+  }
+
+  const handleShowLogs = (record: any) => {
+    setLogRecord(record)
+    setLogs([])
+    setLogModalOpen(true)
+    fetchLogs(record)
+  }
+
+  const fetchPeers = async (record: any) => {
+    setPeersLoading(true)
+    try {
+      const res: any = await api.getPeers(record.id)
+      setPeersInfo(res.data || null)
+    } catch (e) {
+      setPeersInfo(null)
+    } finally {
+      setPeersLoading(false)
+    }
+  }
+
+  const handleShowPeers = (record: any) => {
+    setPeersRecord(record)
+    setPeersInfo(null)
+    setPeersModalOpen(true)
+    fetchPeers(record)
+  }
 
   const handleQuickCreate = () => {
     quickForm.resetFields()
@@ -223,6 +276,8 @@ const EasytierServer: React.FC = () => {
           }
           {r.last_error && <Tooltip title={r.last_error}><Button size="small" icon={<InfoCircleOutlined />} danger /></Tooltip>}
           <Tooltip title={t('common.edit')}><Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)} /></Tooltip>
+          <Tooltip title="查看日志"><Button size="small" icon={<FileTextOutlined />} onClick={() => handleShowLogs(r)} /></Tooltip>
+          <Tooltip title="节点信息"><Button size="small" icon={<NodeIndexOutlined />} onClick={() => handleShowPeers(r)} /></Tooltip>
           <Popconfirm title={t('common.deleteConfirm')} onConfirm={async () => { await api.delete(r.id); fetchData() }}>
             <Tooltip title={t('common.delete')}><Button size="small" danger icon={<DeleteOutlined />} /></Tooltip>
           </Popconfirm>
@@ -887,6 +942,95 @@ const EasytierServer: React.FC = () => {
             ]}
           />
         </Form>
+      </Modal>
+
+      {/* 日志 Modal */}
+      <Modal
+        title={<Space><FileTextOutlined />实时日志 - {logRecord?.name}</Space>}
+        open={logModalOpen}
+        onCancel={() => setLogModalOpen(false)}
+        footer={[
+          <Button key="refresh" icon={<ReloadOutlined />} onClick={() => logRecord && fetchLogs(logRecord)} loading={logLoading}>刷新</Button>,
+          <Button key="close" onClick={() => setLogModalOpen(false)}>关闭</Button>,
+        ]}
+        width={860}
+        destroyOnHidden
+      >
+        <Spin spinning={logLoading}>
+          <div style={{
+            background: '#1e1e1e', borderRadius: 6, padding: '10px 14px',
+            height: 420, overflowY: 'auto', fontFamily: 'monospace', fontSize: 12,
+          }}>
+            {logs.length === 0
+              ? <span style={{ color: '#888' }}>{logLoading ? '加载中...' : '暂无日志（进程未运行或尚无输出）'}</span>
+              : logs.map((line, i) => (
+                <div key={i} style={{
+                  color: line.startsWith('[stderr]') ? '#ff7875' : '#d4d4d4',
+                  lineHeight: '1.6',
+                  wordBreak: 'break-all',
+                }}>{line}</div>
+              ))
+            }
+            <div ref={logEndRef} />
+          </div>
+        </Spin>
+      </Modal>
+
+      {/* 节点信息 Modal */}
+      <Modal
+        title={<Space><NodeIndexOutlined />节点信息 - {peersRecord?.name}</Space>}
+        open={peersModalOpen}
+        onCancel={() => setPeersModalOpen(false)}
+        footer={[
+          <Button key="refresh" icon={<ReloadOutlined />} onClick={() => peersRecord && fetchPeers(peersRecord)} loading={peersLoading}>刷新</Button>,
+          <Button key="close" onClick={() => setPeersModalOpen(false)}>关闭</Button>,
+        ]}
+        width={900}
+        destroyOnHidden
+      >
+        <Spin spinning={peersLoading}>
+          {!peersInfo && !peersLoading && (
+            <Alert type="warning" message="无法获取节点信息，请确认已配置 RPC 门户地址且节点正在运行" style={{ marginBottom: 12 }} />
+          )}
+          {peersInfo && (
+            <>
+              <div style={{ marginBottom: 8, fontWeight: 600, color: '#595959' }}>对等节点（Peers）</div>
+              <Table
+                dataSource={peersInfo.peers || []}
+                rowKey={(r: any, i: any) => r.id || i}
+                size="small"
+                pagination={false}
+                style={{ marginBottom: 16 }}
+                locale={{ emptyText: '暂无对等节点' }}
+                columns={[
+                  { title: '虚拟 IP', dataIndex: 'ipv4', width: 140, render: (v: string) => <Text code style={{ fontSize: 11 }}>{v || '-'}</Text> },
+                  { title: '主机名', dataIndex: 'hostname', width: 130 },
+                  { title: '延迟', dataIndex: 'latency', width: 90, render: (v: string) => v ? <Tag color="green">{v}</Tag> : '-' },
+                  { title: '协议', dataIndex: 'tunnel_proto', width: 80, render: (v: string) => v ? <Tag color="blue">{v}</Tag> : '-' },
+                  { title: 'NAT 类型', dataIndex: 'nat_type', width: 100 },
+                  { title: '发送', dataIndex: 'tx_bytes', width: 90 },
+                  { title: '接收', dataIndex: 'rx_bytes', width: 90 },
+                  { title: '跳数', dataIndex: 'cost', width: 70 },
+                ]}
+              />
+              <div style={{ marginBottom: 8, fontWeight: 600, color: '#595959' }}>路由表（Routes）</div>
+              <Table
+                dataSource={peersInfo.routes || []}
+                rowKey={(r: any, i: any) => r.ipv4 || i}
+                size="small"
+                pagination={false}
+                locale={{ emptyText: '暂无路由' }}
+                columns={[
+                  { title: '虚拟 IP', dataIndex: 'ipv4', width: 140, render: (v: string) => <Text code style={{ fontSize: 11 }}>{v || '-'}</Text> },
+                  { title: '主机名', dataIndex: 'hostname', width: 130 },
+                  { title: '代理网段', dataIndex: 'proxy_cidrs', width: 150 },
+                  { title: '下一跳', dataIndex: 'next_hop_ipv4', width: 140 },
+                  { title: '跳数', dataIndex: 'cost', width: 70 },
+                ]}
+              />
+            </>
+          )}
+        </Spin>
       </Modal>
     </div>
   )

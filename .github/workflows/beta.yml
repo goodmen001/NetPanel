@@ -363,7 +363,17 @@ jobs:
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           echo "VERSION=beta-${SHORT_SHA}" >> $GITHUB_ENV
-          echo "Building installer version: beta-${SHORT_SHA}"
+
+          # VersionInfoVersion 必须是 x.x.x.x 纯数字格式
+          # 若 GITHUB_REF 是 tag（如 v1.2.3），提取数字部分；否则用 0.0.0
+          RAW_TAG="${{ github.ref_name }}"
+          if echo "${RAW_TAG}" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+'; then
+            NUMERIC=$(echo "${RAW_TAG}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          else
+            NUMERIC="0.0.0"
+          fi
+          echo "VERSION_NUMERIC=${NUMERIC}" >> $GITHUB_ENV
+          echo "Building installer: VERSION=beta-${SHORT_SHA}, VERSION_NUMERIC=${NUMERIC}"
 
       - name: Install Inno Setup
         shell: powershell

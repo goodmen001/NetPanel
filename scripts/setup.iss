@@ -12,6 +12,12 @@
 #if AppVersion == ""
   #define AppVersion "0.1.0"
 #endif
+; VersionInfoVersion 必须是 x.x.x.x 纯数字格式（Windows PE 资源要求）
+; 从 AppVersion 中提取数字部分：v1.2.3 -> 1.2.3，beta-abc1234 -> 0.0.0
+#define AppVersionNumeric GetEnv("VERSION_NUMERIC")
+#if AppVersionNumeric == ""
+  #define AppVersionNumeric "0.0.0"
+#endif
 #define AppPublisher "NetPanel Team"
 #define AppURL       "https://github.com/YOUR_ORG/netpanel"
 #define AppExeName   "netpanel.exe"
@@ -67,11 +73,12 @@ UninstallDisplayName={#AppName} v{#AppVersion}
 CreateUninstallRegKey=yes
 
 ; 版本信息（供 Windows 属性面板显示）
-VersionInfoVersion={#AppVersion}
+; VersionInfoVersion 必须是 x.x.x.x 纯数字格式，使用单独的 VERSION_NUMERIC 环境变量
+VersionInfoVersion={#AppVersionNumeric}
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription={#AppName} Network Manager
 VersionInfoProductName={#AppName}
-VersionInfoProductVersion={#AppVersion}
+VersionInfoProductVersion={#AppVersionNumeric}
 
 ; ─── [Languages] ──────────────────────────────────────────────────────────────
 

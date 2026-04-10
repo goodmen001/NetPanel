@@ -159,6 +159,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/easytier/client/:id/start", etHandler.Start)
 	auth.POST("/easytier/client/:id/stop", etHandler.Stop)
 	auth.GET("/easytier/client/:id/status", etHandler.GetStatus)
+	auth.GET("/easytier/client/:id/logs", etHandler.GetLogs)
+	auth.GET("/easytier/client/:id/peers", etHandler.GetPeers)
 
 	// EasyTier 服务端
 	etsHandler := handlers.NewEasytierServerHandler(opts.DB, opts.Log, opts.EasytierMgr)
@@ -168,6 +170,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.DELETE("/easytier/server/:id", etsHandler.Delete)
 	auth.POST("/easytier/server/:id/start", etsHandler.Start)
 	auth.POST("/easytier/server/:id/stop", etsHandler.Stop)
+	auth.GET("/easytier/server/:id/logs", etsHandler.GetLogs)
+	auth.GET("/easytier/server/:id/peers", etsHandler.GetPeers)
 
 	// WireGuard
 	wgHandler := handlers.NewWireguardHandler(opts.DB, opts.Log, opts.WireguardMgr)

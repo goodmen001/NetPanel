@@ -1,10 +1,11 @@
 package easytier
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,10 +19,80 @@ import (
 	"gorm.io/gorm"
 )
 
+const maxLogLines = 500 // 每个实例最多保留的日志行数
+
+// ringBuffer 环形日志缓冲区，线程安全
+type ringBuffer struct {
+	mu   sync.RWMutex
+	buf  []string
+	size int
+	pos  int
+	full bool
+}
+
+func newRingBuffer(size int) *ringBuffer {
+	return &ringBuffer{buf: make([]string, size), size: size}
+}
+
+// write 写入一行日志
+func (r *ringBuffer) write(line string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.buf[r.pos] = line
+	r.pos = (r.pos + 1) % r.size
+	if r.pos == 0 {
+		r.full = true
+	}
+}
+
+// lines 返回所有日志行（按时间顺序）
+func (r *ringBuffer) lines() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if !r.full {
+		result := make([]string, r.pos)
+		copy(result, r.buf[:r.pos])
+		return result
+	}
+	result := make([]string, r.size)
+	copy(result, r.buf[r.pos:])
+	copy(result[r.size-r.pos:], r.buf[:r.pos])
+	return result
+}
+
+// PeerInfo 节点信息（来自 easytier-cli peer）
+type PeerInfo struct {
+	IPv4        string `json:"ipv4"`
+	Hostname    string `json:"hostname"`
+	Cost        string `json:"cost"`
+	Latency     string `json:"latency"`
+	TxBytes     string `json:"tx_bytes"`
+	RxBytes     string `json:"rx_bytes"`
+	TunnelProto string `json:"tunnel_proto"`
+	NatType     string `json:"nat_type"`
+	ID          string `json:"id"`
+}
+
+// RouteInfo 路由信息（来自 easytier-cli route）
+type RouteInfo struct {
+	IPv4        string `json:"ipv4"`
+	Hostname    string `json:"hostname"`
+	Proxy       string `json:"proxy_cidrs"`
+	NextHopIPv4 string `json:"next_hop_ipv4"`
+	Cost        string `json:"cost"`
+}
+
+// NodeInfo 节点综合信息
+type NodeInfo struct {
+	Peers  []PeerInfo  `json:"peers"`
+	Routes []RouteInfo `json:"routes"`
+}
+
 type processEntry struct {
 	cmd    *exec.Cmd
 	cancel context.CancelFunc
 	done   chan struct{} // 进程退出后关闭，用于等待进程完全退出
+	logs   *ringBuffer  // 实时日志缓冲区
 }
 
 // Manager EasyTier 管理器（命令行进程管理）
@@ -152,11 +223,14 @@ func (m *Manager) StartClient(id uint) error {
 	cmd := exec.CommandContext(ctx, m.getBinaryPath(), args...)
 	// 设置工作目录为二进制文件所在目录，确保能找到 wintun.dll 等依赖文件
 	cmd.Dir = filepath.Dir(m.getBinaryPath())
-	// 使用 bytes.Buffer 捕获 stdout/stderr，同时保留输出到控制台
-	var stdoutBuf bytes.Buffer
+
+	// 创建日志缓冲区
+	logBuf := newRingBuffer(maxLogLines)
+	// 用于检测 WinPcap panic 的 stderr 缓冲
 	var stderrBuf bytes.Buffer
-	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
-	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+
+	stdoutPipe, _ := cmd.StdoutPipe()
+	stderrPipe, _ := cmd.StderrPipe()
 
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -167,8 +241,28 @@ func (m *Manager) StartClient(id uint) error {
 		return fmt.Errorf("启动 EasyTier 客户端失败: %w", err)
 	}
 
-	entry := &processEntry{cmd: cmd, cancel: cancel, done: make(chan struct{})}
+	entry := &processEntry{cmd: cmd, cancel: cancel, done: make(chan struct{}), logs: logBuf}
 	m.clients.Store(id, entry)
+
+	// 异步读取 stdout
+	go func() {
+		scanner := bufio.NewScanner(stdoutPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			logBuf.write(line)
+			_, _ = fmt.Fprintln(os.Stdout, line)
+		}
+	}()
+	// 异步读取 stderr
+	go func() {
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			logBuf.write("[stderr] " + line)
+			stderrBuf.WriteString(line + "\n")
+			_, _ = fmt.Fprintln(os.Stderr, line)
+		}
+	}()
 
 	go func() {
 		err := cmd.Wait()
@@ -179,9 +273,6 @@ func (m *Manager) StartClient(id uint) error {
 		if err != nil {
 			errMsg := fmt.Sprintf("进程异常退出: %v", err)
 			m.log.Warnf("[EasyTier客户端][%d] %s", id, errMsg)
-			if stdoutOutput := stdoutBuf.String(); stdoutOutput != "" {
-				m.log.Warnf("[EasyTier客户端][%d] stdout输出:\n%s", id, stdoutOutput)
-			}
 			m.db.Model(&model.EasytierClient{}).Where("id = ?", id).Updates(map[string]interface{}{
 				"status":     "error",
 				"last_error": errMsg,
@@ -556,11 +647,14 @@ func (m *Manager) StartServer(id uint) error {
 	cmd := exec.CommandContext(ctx, m.getBinaryPath(), args...)
 	// 设置工作目录为二进制文件所在目录，确保能找到 wintun.dll 等依赖文件
 	cmd.Dir = filepath.Dir(m.getBinaryPath())
-	// 使用 bytes.Buffer 捕获 stdout/stderr，同时保留输出到控制台
-	var stdoutBuf bytes.Buffer
+
+	// 创建日志缓冲区
+	logBuf := newRingBuffer(maxLogLines)
+	// 用于检测 WinPcap panic 的 stderr 缓冲
 	var stderrBuf bytes.Buffer
-	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
-	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+
+	stdoutPipe, _ := cmd.StdoutPipe()
+	stderrPipe, _ := cmd.StderrPipe()
 
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -571,8 +665,28 @@ func (m *Manager) StartServer(id uint) error {
 		return fmt.Errorf("启动 EasyTier 服务端失败: %w", err)
 	}
 
-	entry := &processEntry{cmd: cmd, cancel: cancel, done: make(chan struct{})}
+	entry := &processEntry{cmd: cmd, cancel: cancel, done: make(chan struct{}), logs: logBuf}
 	m.servers.Store(id, entry)
+
+	// 异步读取 stdout
+	go func() {
+		scanner := bufio.NewScanner(stdoutPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			logBuf.write(line)
+			_, _ = fmt.Fprintln(os.Stdout, line)
+		}
+	}()
+	// 异步读取 stderr
+	go func() {
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			logBuf.write("[stderr] " + line)
+			stderrBuf.WriteString(line + "\n")
+			_, _ = fmt.Fprintln(os.Stderr, line)
+		}
+	}()
 
 	go func() {
 		err := cmd.Wait()
@@ -583,9 +697,6 @@ func (m *Manager) StartServer(id uint) error {
 		if err != nil {
 			errMsg := fmt.Sprintf("进程异常退出: %v", err)
 			m.log.Warnf("[EasyTier服务端][%d] %s", id, errMsg)
-			if stdoutOutput := stdoutBuf.String(); stdoutOutput != "" {
-				m.log.Warnf("[EasyTier服务端][%d] stdout输出:\n%s", id, stdoutOutput)
-			}
 			if stderrOutput != "" {
 				m.log.Warnf("[EasyTier服务端][%d] stderr输出:\n%s", id, stderrOutput)
 			}
@@ -871,3 +982,216 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 
 	return args
 }
+
+// ===== 日志与节点信息 =====
+
+// GetClientLogs 获取客户端实例的实时日志（最近 maxLogLines 行）
+func (m *Manager) GetClientLogs(id uint) []string {
+	if val, ok := m.clients.Load(id); ok {
+		return val.(*processEntry).logs.lines()
+	}
+	return []string{}
+}
+
+// GetServerLogs 获取服务端实例的实时日志（最近 maxLogLines 行）
+func (m *Manager) GetServerLogs(id uint) []string {
+	if val, ok := m.servers.Load(id); ok {
+		return val.(*processEntry).logs.lines()
+	}
+	return []string{}
+}
+
+// getRpcPortal 从配置中提取 RPC 地址，用于调用 easytier-cli
+func getRpcPortal(rpcPortal string) string {
+	if rpcPortal == "" || rpcPortal == "0" {
+		return ""
+	}
+	// 如果只是端口号，补全为 127.0.0.1:port
+	if !strings.Contains(rpcPortal, ":") {
+		return "127.0.0.1:" + rpcPortal
+	}
+	// 如果是 0.0.0.0:port 形式，替换为 127.0.0.1:port
+	parts := strings.SplitN(rpcPortal, ":", 2)
+	if parts[0] == "0.0.0.0" || parts[0] == "" {
+		return "127.0.0.1:" + parts[1]
+	}
+	return rpcPortal
+}
+
+// getCliPath 获取 easytier-cli 二进制路径
+func (m *Manager) getCliPath() string {
+	cliName := "easytier-cli"
+	if runtime.GOOS == "windows" {
+		cliName = "easytier-cli.exe"
+	}
+	return filepath.Join(m.dataDir, "bin", cliName)
+}
+
+// runCli 执行 easytier-cli 命令并返回输出
+func (m *Manager) runCli(rpcAddr string, args ...string) (string, error) {
+	cliPath := m.getCliPath()
+	if _, err := os.Stat(cliPath); err != nil {
+		return "", fmt.Errorf("easytier-cli 不存在: %s", cliPath)
+	}
+	cmdArgs := []string{"--rpc-portal", rpcAddr}
+	cmdArgs = append(cmdArgs, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, cliPath, cmdArgs...)
+	cmd.Dir = filepath.Dir(cliPath)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("easytier-cli 执行失败: %w", err)
+	}
+	return string(out), nil
+}
+
+// parseCliPeerTable 解析 easytier-cli peer 的文本表格输出为结构化数据
+// 输出格式（表头行 + 数据行，以 | 分隔）：
+// ipv4 | hostname | cost | latency | tx_bytes | rx_bytes | tunnel_proto | nat_type | id
+func parseCliPeerTable(output string) []PeerInfo {
+	var peers []PeerInfo
+	lines := strings.Split(output, "\n")
+	inTable := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// 跳过分隔线（全是 - 和 +）
+		if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
+			continue
+		}
+		// 检测表头行
+		if strings.Contains(line, "ipv4") && strings.Contains(line, "hostname") {
+			inTable = true
+			continue
+		}
+		if !inTable {
+			continue
+		}
+		// 解析数据行
+		cols := strings.Split(line, "|")
+		if len(cols) < 9 {
+			continue
+		}
+		trim := func(s string) string { return strings.TrimSpace(s) }
+		peers = append(peers, PeerInfo{
+			IPv4:        trim(cols[0]),
+			Hostname:    trim(cols[1]),
+			Cost:        trim(cols[2]),
+			Latency:     trim(cols[3]),
+			TxBytes:     trim(cols[4]),
+			RxBytes:     trim(cols[5]),
+			TunnelProto: trim(cols[6]),
+			NatType:     trim(cols[7]),
+			ID:          trim(cols[8]),
+		})
+	}
+	return peers
+}
+
+// parseCliRouteTable 解析 easytier-cli route 的文本表格输出
+func parseCliRouteTable(output string) []RouteInfo {
+	var routes []RouteInfo
+	lines := strings.Split(output, "\n")
+	inTable := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
+			continue
+		}
+		if strings.Contains(line, "ipv4") && strings.Contains(line, "hostname") {
+			inTable = true
+			continue
+		}
+		if !inTable {
+			continue
+		}
+		cols := strings.Split(line, "|")
+		if len(cols) < 5 {
+			continue
+		}
+		trim := func(s string) string { return strings.TrimSpace(s) }
+		routes = append(routes, RouteInfo{
+			IPv4:        trim(cols[0]),
+			Hostname:    trim(cols[1]),
+			Proxy:       trim(cols[2]),
+			NextHopIPv4: trim(cols[3]),
+			Cost:        trim(cols[4]),
+		})
+	}
+	return routes
+}
+
+// GetClientPeers 通过 easytier-cli 获取客户端节点信息
+func (m *Manager) GetClientPeers(id uint) (*NodeInfo, error) {
+	var cfg model.EasytierClient
+	if err := m.db.First(&cfg, id).Error; err != nil {
+		return nil, fmt.Errorf("配置不存在: %w", err)
+	}
+	rpcAddr := getRpcPortal(cfg.RpcPortal)
+	if rpcAddr == "" {
+		return nil, fmt.Errorf("未配置 RPC 门户地址，无法获取节点信息")
+	}
+	return m.fetchNodeInfo(rpcAddr)
+}
+
+// GetServerPeers 通过 easytier-cli 获取服务端节点信息
+func (m *Manager) GetServerPeers(id uint) (*NodeInfo, error) {
+	var cfg model.EasytierServer
+	if err := m.db.First(&cfg, id).Error; err != nil {
+		return nil, fmt.Errorf("配置不存在: %w", err)
+	}
+	rpcAddr := getRpcPortal(cfg.RpcPortal)
+	if rpcAddr == "" {
+		return nil, fmt.Errorf("未配置 RPC 门户地址，无法获取节点信息")
+	}
+	return m.fetchNodeInfo(rpcAddr)
+}
+
+// fetchNodeInfo 通过 RPC 地址获取节点信息（peer + route）
+func (m *Manager) fetchNodeInfo(rpcAddr string) (*NodeInfo, error) {
+	// 尝试 JSON 输出（新版 easytier-cli 支持 --output-format json）
+	peerOut, peerErr := m.runCli(rpcAddr, "peer", "--output-format", "json")
+	routeOut, routeErr := m.runCli(rpcAddr, "route", "--output-format", "json")
+
+	info := &NodeInfo{}
+
+	if peerErr == nil && strings.TrimSpace(peerOut) != "" {
+		// 尝试解析 JSON
+		var peers []PeerInfo
+		if err := json.Unmarshal([]byte(strings.TrimSpace(peerOut)), &peers); err == nil {
+			info.Peers = peers
+		} else {
+			// 回退到文本解析
+			info.Peers = parseCliPeerTable(peerOut)
+		}
+	} else if peerErr != nil {
+		// 回退：不带 --output-format 参数
+		peerOut2, err2 := m.runCli(rpcAddr, "peer")
+		if err2 == nil {
+			info.Peers = parseCliPeerTable(peerOut2)
+		}
+	}
+
+	if routeErr == nil && strings.TrimSpace(routeOut) != "" {
+		var routes []RouteInfo
+		if err := json.Unmarshal([]byte(strings.TrimSpace(routeOut)), &routes); err == nil {
+			info.Routes = routes
+		} else {
+			info.Routes = parseCliRouteTable(routeOut)
+		}
+	} else if routeErr != nil {
+		routeOut2, err2 := m.runCli(rpcAddr, "route")
+		if err2 == nil {
+			info.Routes = parseCliRouteTable(routeOut2)
+		}
+	}
+
+	return info, nil
+}
+

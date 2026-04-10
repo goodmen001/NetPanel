@@ -99,6 +99,22 @@ func (h *EasytierHandler) GetStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"status": status}})
 }
 
+func (h *EasytierHandler) GetLogs(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	logs := h.mgr.GetClientLogs(uint(id))
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": logs})
+}
+
+func (h *EasytierHandler) GetPeers(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	info, err := h.mgr.GetClientPeers(uint(id))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": info})
+}
+
 // ===== EasyTier 服务端 =====
 
 type EasytierServerHandler struct {
@@ -177,4 +193,20 @@ func (h *EasytierServerHandler) Stop(c *gin.Context) {
 	h.db.Model(&model.EasytierServer{}).Where("id = ?", id).Update("enable", false)
 	logger.WriteLog("info", "easytier", fmt.Sprintf("停止EasyTier服务端 [%d]", id))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "已停止"})
+}
+
+func (h *EasytierServerHandler) GetLogs(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	logs := h.mgr.GetServerLogs(uint(id))
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": logs})
+}
+
+func (h *EasytierServerHandler) GetPeers(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	info, err := h.mgr.GetServerPeers(uint(id))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": info})
 }

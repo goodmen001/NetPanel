@@ -78,6 +78,8 @@ export const easytierClientApi = {
   start: (id: number) => request.post(`/v1/easytier/client/${id}/start`),
   stop: (id: number) => request.post(`/v1/easytier/client/${id}/stop`),
   getStatus: (id: number) => request.get(`/v1/easytier/client/${id}/status`),
+  getLogs: (id: number) => request.get(`/v1/easytier/client/${id}/logs`),
+  getPeers: (id: number) => request.get(`/v1/easytier/client/${id}/peers`),
 }
 
 // ===== EasyTier 服务端 =====
@@ -88,6 +90,8 @@ export const easytierServerApi = {
   delete: (id: number) => request.delete(`/v1/easytier/server/${id}`),
   start: (id: number) => request.post(`/v1/easytier/server/${id}/start`),
   stop: (id: number) => request.post(`/v1/easytier/server/${id}/stop`),
+  getLogs: (id: number) => request.get(`/v1/easytier/server/${id}/logs`),
+  getPeers: (id: number) => request.get(`/v1/easytier/server/${id}/peers`),
 }
 
 // ===== WireGuard =====
@@ -417,5 +421,7 @@ export function createRemoteTunnelApi(tunnelType: string, nodeId: number, isLoca
     getStatus: (id: number) => meshNodeApi.proxyGet(nodeId, `${basePath}/${id}/status`),
     // 端口转发日志
     getLogs: (id: number) => meshNodeApi.proxyGet(nodeId, `${basePath}/${id}/logs`),
+    // EasyTier 节点信息
+    getPeers: (id: number) => meshNodeApi.proxyGet(nodeId, `${basePath}/${id}/peers`),
   }
 }

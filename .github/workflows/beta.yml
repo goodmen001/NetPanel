@@ -5,6 +5,11 @@ on:
     branches:
       - main
 
+# 同一分支的多次推送，取消旧的 workflow，但每个 job 内部的发布步骤使用 group 防并发
+concurrency:
+  group: beta-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   GO_VERSION: '1.24'
   NODE_VERSION: '20'
@@ -249,6 +254,24 @@ jobs:
             release/*.zip
           retention-days: 3
 
+      - name: Publish to Beta Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: beta
+          name: "Beta Build (latest)"
+          files: |
+            release/*.tar.gz
+            release/*.zip
+          draft: false
+          prerelease: true
+          make_latest: false
+          generate_release_notes: false
+          append_body: true
+          body: |
+            **提交**: ${{ github.sha }} | **构建时间**: ${{ github.event.head_commit.timestamp }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # ===== 构建后端（macOS 原生编译）=====
   build-macos:
     name: Build (darwin-${{ matrix.goarch }})
@@ -329,6 +352,22 @@ jobs:
           name: release-darwin-${{ matrix.goarch }}
           path: release/*.tar.gz
           retention-days: 3
+
+      - name: Publish to Beta Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: beta
+          name: "Beta Build (latest)"
+          files: release/*.tar.gz
+          draft: false
+          prerelease: true
+          make_latest: false
+          generate_release_notes: false
+          append_body: true
+          body: |
+            **提交**: ${{ github.sha }} | **构建时间**: ${{ github.event.head_commit.timestamp }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ===== 构建 Windows InnoSetup 安装包 =====
   build-inno-setup:
@@ -418,6 +457,24 @@ jobs:
             dist/NetPanel-Setup-*.exe
             dist/SHA256SUMS-installer.txt
           retention-days: 3
+
+      - name: Publish to Beta Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: beta
+          name: "Beta Build (latest)"
+          files: |
+            dist/NetPanel-Setup-*.exe
+            dist/SHA256SUMS-installer.txt
+          draft: false
+          prerelease: true
+          make_latest: false
+          generate_release_notes: false
+          append_body: true
+          body: |
+            **提交**: ${{ github.sha }} | **构建时间**: ${{ github.event.head_commit.timestamp }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ===== 构建后端（OpenWrt musl 静态编译）=====
   # build-openwrt:
@@ -614,61 +671,48 @@ jobs:
             dist/electron/*.tar.gz
           retention-days: 3
 
-  # ===== 发布 Beta Release（滚动更新）=====
-  # 仅依赖核心构建 job，InnoSetup 和 Electron 构建失败不阻塞发布
-  release-beta:
-    name: Publish Beta Release
-    runs-on: ubuntu-latest
-    needs: [build-linux-windows, build-macos]
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download core release artifacts
-        uses: actions/download-artifact@v4
-        with:
-          # 只下载核心二进制包（linux/windows/darwin），不依赖可选构建产物
-          pattern: release-{linux,windows,darwin}-*
-          path: release/
-          merge-multiple: true
-
-      - name: Download optional artifacts (best-effort)
-        # 尝试下载 InnoSetup 安装包和 Electron 包，失败时忽略
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          pattern: release-{windows-installer,electron-*}
-          path: release/
-          merge-multiple: true
-
-      - name: Generate checksums
-        run: |
-          cd release
-          # 对所有存在的文件生成校验和（忽略不存在的类型）
-          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.exe' -o -name '*.dmg' -o -name '*.AppImage' \) \
-            -exec sha256sum {} \; 2>/dev/null | sed 's|\./||' | sort -u > SHA256SUMS.txt || true
-          cat SHA256SUMS.txt
-
-      - name: List release files
-        run: ls -lh release/
-
-      - name: Publish Beta Release
+      - name: Publish to Beta Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: beta
           name: "Beta Build (latest)"
           files: |
-            release/*.tar.gz
-            release/*.zip
-            release/*.exe
-            release/*.dmg
-            release/*.AppImage
-            release/SHA256SUMS.txt
-          generate_release_notes: false
+            dist/electron/*.exe
+            dist/electron/*.dmg
+            dist/electron/*.AppImage
+            dist/electron/*.zip
+            dist/electron/*.tar.gz
           draft: false
           prerelease: true
           make_latest: false
+          generate_release_notes: false
+          append_body: true
+          body: |
+            **提交**: ${{ github.sha }} | **构建时间**: ${{ github.event.head_commit.timestamp }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ===== 更新 Beta Release 说明（所有构建完成后刷新 body）=====
+  # 等待所有 job，无论成功失败都运行，最终更新 Release 描述
+  update-beta-body:
+    name: Update Beta Release Body
+    runs-on: ubuntu-latest
+    needs: [build-linux-windows, build-macos, build-inno-setup, build-electron]
+    if: always() && !cancelled()
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update Beta Release Body
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: beta
+          name: "Beta Build (latest)"
+          draft: false
+          prerelease: true
+          make_latest: false
+          generate_release_notes: false
           body: |
             ## NetPanel Beta Build
 
@@ -720,3 +764,5 @@ jobs:
             ```bash
             sha256sum -c SHA256SUMS.txt
             ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -526,6 +526,12 @@ func (m *Manager) buildClientArgs(cfg *model.EasytierClient) []string {
 	if cfg.PrivateMode {
 		args = append(args, "--private-mode")
 	}
+	if cfg.PrivateKey != "" {
+		args = append(args, "--private-key", cfg.PrivateKey)
+	}
+	if cfg.PreSharedKey != "" {
+		args = append(args, "--pre-shared-key", cfg.PreSharedKey)
+	}
 
 	// ===== 中继选项 =====
 	if cfg.RelayNetworkWhitelist != "" {
@@ -888,6 +894,12 @@ func (m *Manager) buildServerArgs(cfg *model.EasytierServer) []string {
 	}
 	if cfg.PrivateMode {
 		args = append(args, "--private-mode")
+	}
+	if cfg.PrivateKey != "" {
+		args = append(args, "--private-key", cfg.PrivateKey)
+	}
+	if cfg.PreSharedKey != "" {
+		args = append(args, "--pre-shared-key", cfg.PreSharedKey)
 	}
 
 	// ===== 中继选项 =====

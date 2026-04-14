@@ -903,6 +903,76 @@ const EasytierClient: React.FC = () => {
         </Col>
       </Row>
 
+      <SectionTitle>节点密钥对</SectionTitle>
+      <Row gutter={16}>
+        <Col span={24}>
+          <Form.Item
+            name="private_key"
+            label="节点私钥"
+            extra={<span style={{ fontSize: 11 }}>Base64 编码的 Ed25519 私钥（--private-key），用于节点身份认证；留空自动生成</span>}
+          >
+            <Input.Password
+              placeholder="留空自动生成，或点击右侧按钮生成"
+              style={{ width: '100%' }}
+              addonAfter={
+                <span
+                  style={{ cursor: 'pointer', color: '#1677ff', fontSize: 12, userSelect: 'none' }}
+                  onClick={() => {
+                    // 生成 32 字节随机私钥并 Base64 编码
+                    const bytes = new Uint8Array(32)
+                    crypto.getRandomValues(bytes)
+                    const b64 = btoa(String.fromCharCode(...bytes))
+                    form.setFieldsValue({ private_key: b64, public_key: '' })
+                  }}
+                >生成</span>
+              }
+            />
+          </Form.Item>
+        </Col>
+      </Row>
+      <Row gutter={16}>
+        <Col span={24}>
+          <Form.Item
+            name="public_key"
+            label="节点公钥（仅展示）"
+            extra={<span style={{ fontSize: 11 }}>公钥由私钥派生，此处仅供展示和复制，不会写入配置</span>}
+          >
+            <Input
+              readOnly
+              placeholder="填写私钥后此处展示对应公钥（需服务端支持派生）"
+              style={{ width: '100%', background: '#fafafa' }}
+            />
+          </Form.Item>
+        </Col>
+      </Row>
+
+      <SectionTitle>预共享密钥</SectionTitle>
+      <Row gutter={16}>
+        <Col span={24}>
+          <Form.Item
+            name="pre_shared_key"
+            label="预共享密钥（PSK）"
+            extra={<span style={{ fontSize: 11 }}>Base64 编码的预共享密钥（--pre-shared-key），同一网络所有节点需保持一致；留空不启用</span>}
+          >
+            <Input.Password
+              placeholder="留空不启用，或点击右侧按钮随机生成"
+              style={{ width: '100%' }}
+              addonAfter={
+                <span
+                  style={{ cursor: 'pointer', color: '#1677ff', fontSize: 12, userSelect: 'none' }}
+                  onClick={() => {
+                    const bytes = new Uint8Array(32)
+                    crypto.getRandomValues(bytes)
+                    const b64 = btoa(String.fromCharCode(...bytes))
+                    form.setFieldsValue({ pre_shared_key: b64 })
+                  }}
+                >随机生成</span>
+              }
+            />
+          </Form.Item>
+        </Col>
+      </Row>
+
       <SectionTitle>中继流量控制</SectionTitle>
       <Row gutter={16}>
         <Col span={12}>

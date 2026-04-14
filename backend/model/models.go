@@ -404,6 +404,9 @@ type EasytierClient struct {
 	DisableEncryption   bool   `gorm:"default:false" json:"disable_encryption"`    // --disable-encryption：禁用加密（不推荐）
 	EncryptionAlgorithm string `gorm:"size:50" json:"encryption_algorithm"`        // --encryption-algorithm：加密算法
 	PrivateMode         bool   `gorm:"default:false" json:"private_mode"`          // --private-mode：私有模式（仅允许已知节点）
+	PrivateKey          string `gorm:"size:500" json:"private_key"`                // --private-key：节点私钥（Base64 编码）
+	PublicKey           string `gorm:"size:500" json:"public_key"`                 // 节点公钥（由私钥派生，仅展示用）
+	PreSharedKey        string `gorm:"size:500" json:"pre_shared_key"`             // --pre-shared-key：预共享密钥（Base64 编码）
 
 	// ===== 中继选项 =====
 	RelayNetworkWhitelist      string `gorm:"size:500" json:"relay_network_whitelist"`       // --relay-network-whitelist：允许中继的网络白名单
@@ -502,6 +505,9 @@ type EasytierServer struct {
 	DisableEncryption   bool   `gorm:"default:false" json:"disable_encryption"`    // --disable-encryption
 	EncryptionAlgorithm string `gorm:"size:50" json:"encryption_algorithm"`        // --encryption-algorithm：加密算法
 	PrivateMode         bool   `gorm:"default:false" json:"private_mode"`          // --private-mode：私有模式
+	PrivateKey          string `gorm:"size:500" json:"private_key"`                // --private-key：节点私钥（Base64 编码）
+	PublicKey           string `gorm:"size:500" json:"public_key"`                 // 节点公钥（由私钥派生，仅展示用）
+	PreSharedKey        string `gorm:"size:500" json:"pre_shared_key"`             // --pre-shared-key：预共享密钥（Base64 编码）
 
 	// ===== 中继选项 =====
 	RelayNetworkWhitelist      string `gorm:"size:500" json:"relay_network_whitelist"`       // --relay-network-whitelist

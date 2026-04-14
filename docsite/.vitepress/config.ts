@@ -91,6 +91,7 @@ export default defineConfig({
       '/guide/': [
         {
           text: '入门指南',
+          collapsed: false,
           items: [
             { text: '安装部署', link: '/guide/installation' },
             { text: '系统设置', link: '/guide/system' },
@@ -100,10 +101,62 @@ export default defineConfig({
         },
         {
           text: '资源与下载',
+          collapsed: false,
           items: [
             { text: '官方资源与下载', link: '/guide/resources' },
           ]
-        }
+        },
+        {
+          text: '网络穿透与组网',
+          collapsed: true,
+          items: [
+            { text: '端口转发', link: '/features/port-forward' },
+            { text: 'STUN 内网穿透', link: '/features/stun' },
+            { text: 'FRP 客户端', link: '/features/frp-client' },
+            { text: 'FRP 服务端', link: '/features/frp-server' },
+            { text: 'EasyTier 客户端', link: '/features/easytier-client' },
+            { text: 'EasyTier 服务端', link: '/features/easytier-server' },
+            { text: 'NPS', link: '/features/nps' },
+          ]
+        },
+        {
+          text: '域名与证书',
+          collapsed: true,
+          items: [
+            { text: '动态域名 (DDNS)', link: '/features/ddns' },
+            { text: '域名账号', link: '/features/domain-account' },
+            { text: '域名解析', link: '/features/dns-records' },
+            { text: '域名证书', link: '/features/ssl-cert' },
+          ]
+        },
+        {
+          text: '网站与安全',
+          collapsed: true,
+          items: [
+            { text: '网站服务 (Caddy)', link: '/features/caddy' },
+            { text: '网络防护 (WAF)', link: '/features/waf' },
+            { text: '访问控制', link: '/features/access-control' },
+            { text: '防火墙', link: '/features/firewall' },
+          ]
+        },
+        {
+          text: '辅助功能',
+          collapsed: true,
+          items: [
+            { text: '网络唤醒 (WOL)', link: '/features/wol' },
+            { text: '解析服务 (DNSMasq)', link: '/features/dnsmasq' },
+            { text: '计划任务', link: '/features/cron' },
+            { text: '网络存储', link: '/features/storage' },
+            { text: 'IP 地址库', link: '/features/ip-database' },
+          ]
+        },
+        {
+          text: '回调系统',
+          collapsed: true,
+          items: [
+            { text: '回调任务与账号', link: '/features/callback' },
+          ]
+        },
       ],
       '/features/': [
         {

@@ -111,6 +111,8 @@ jobs:
     name: Build (${{ matrix.goos }}-${{ matrix.goarch }})
     runs-on: ubuntu-latest
     needs: [build-frontend, download-easytier]
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -277,6 +279,8 @@ jobs:
     name: Build (darwin-${{ matrix.goarch }})
     runs-on: macos-latest
     needs: [build-frontend, download-easytier]
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -374,6 +378,8 @@ jobs:
     name: Build Windows Installer (InnoSetup)
     runs-on: windows-latest
     needs: [build-linux-windows]
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -569,6 +575,8 @@ jobs:
     name: Build Electron (${{ matrix.os }})
     runs-on: ${{ matrix.runner }}
     needs: [build-linux-windows, build-macos]
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -657,18 +665,26 @@ jobs:
         shell: bash
         run: |
           echo "=== Electron build output ==="
-          ls -lh dist/electron/ 2>/dev/null || ls -lh desktop/dist/ 2>/dev/null || true
+          ls -lh desktop/dist/ 2>/dev/null || true
+
+      - name: Collect Electron artifacts
+        shell: bash
+        run: |
+          mkdir -p electron-release
+          # 收集所有可能的 Electron 输出文件
+          find desktop/dist/ -maxdepth 1 \( \
+            -name "*.exe" -o -name "*.dmg" -o \
+            -name "*.AppImage" -o -name "*.zip" -o \
+            -name "*.tar.gz" \
+          \) -exec cp {} electron-release/ \; 2>/dev/null || true
+          echo "=== Collected files ==="
+          ls -lh electron-release/ || echo "No files collected"
 
       - name: Upload Electron artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-electron-${{ matrix.arch_label }}
-          path: |
-            dist/electron/*.exe
-            dist/electron/*.dmg
-            dist/electron/*.AppImage
-            dist/electron/*.zip
-            dist/electron/*.tar.gz
+          path: electron-release/
           retention-days: 3
 
       - name: Publish to Beta Release
@@ -676,12 +692,7 @@ jobs:
         with:
           tag_name: beta
           name: "Beta Build (latest)"
-          files: |
-            dist/electron/*.exe
-            dist/electron/*.dmg
-            dist/electron/*.AppImage
-            dist/electron/*.zip
-            dist/electron/*.tar.gz
+          files: electron-release/*
           draft: false
           prerelease: true
           make_latest: false

@@ -72,6 +72,10 @@ const en = {
     network: 'Network',
     domain: 'Domain',
     callback: 'Callback',
+    portMapping: 'Port Mapping',
+    networkGroup: 'Network Group',
+    webService: 'Web Service',
+    localTools: 'Local Tools',
     // System Admin
     admin: 'System Admin',
     adminLogs: 'System Logs',

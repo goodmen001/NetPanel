@@ -93,7 +93,7 @@ const MainLayout: React.FC = () => {
         {
             key: 'port-mapping',
             icon: <SwapOutlined/>,
-            label: '端口映射',
+            label: t('menu.portMapping'),
             children: [
                 {key: 'port-forward', icon: <NodeIndexOutlined/>, label: t('menu.portForward')},
                 {key: 'stun', icon: <WifiOutlined/>, label: t('menu.stun')},
@@ -105,7 +105,7 @@ const MainLayout: React.FC = () => {
         {
             key: 'network',
             icon: <ApartmentOutlined/>,
-            label: '组网管理',
+            label: t('menu.networkGroup'),
             children: [
                 {key: 'nps/client', icon: <ApiOutlined/>, label: t('menu.npsClient')},
                 {key: 'nps/server', icon: <CloudServerOutlined/>, label: t('menu.npsServer')},
@@ -130,7 +130,7 @@ const MainLayout: React.FC = () => {
         {
             key: 'web-service',
             icon: <GlobalOutlined/>,
-            label: '网页服务',
+            label: t('menu.webService'),
             children: [
                 {key: 'ddns', icon: <GlobalOutlined/>, label: t('menu.ddns')},
                 {key: 'caddy', icon: <LinkOutlined/>, label: t('menu.caddy')},
@@ -152,7 +152,7 @@ const MainLayout: React.FC = () => {
         {
             key: 'intranet',
             icon: <ControlOutlined/>,
-            label: '本地工具',
+            label: t('menu.localTools'),
             children: [
                 {key: 'dnsmasq', icon: <ControlOutlined/>, label: t('menu.dnsmasq')},
                 {key: 'wol', icon: <ThunderboltOutlined/>, label: t('menu.wol')},

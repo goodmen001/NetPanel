@@ -75,6 +75,10 @@ const zh = {
     network: '异地组网',
     domain: '域名管理',
     callback: '任务管理',
+    portMapping: '端口映射',
+    networkGroup: '组网管理',
+    webService: '网页服务',
+    localTools: '本地工具',
     // 系统管理
     admin: '系统管理',
     adminLogs: '系统日志查看',

@@ -467,7 +467,6 @@ const zh = {
     serverTitle: 'EasyTier服务端',
     exportConfig: '导出配置',
     importConfig: '导入配置',
-    quickCreate: '快速创建',
     binaryNotFoundTip: '请先下载 easytier-core 二进制文件，放置到程序目录的 bin/ 文件夹下。',
     downloadFromGithub: '前往 GitHub Releases 下载',
     binaryNotFound: 'EasyTier 核心程序未找到',

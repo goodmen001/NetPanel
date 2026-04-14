@@ -457,7 +457,6 @@ const en = {
     serverTitle: 'EasyTier Server',
     exportConfig: 'Export Config',
     importConfig: 'Import Config',
-    quickCreate: 'Quick Create',
     binaryNotFoundTip: 'Please download easytier-core binary and place it in the bin/ folder under the program directory.',
     downloadFromGithub: 'Download from GitHub Releases',
     binaryNotFound: 'EasyTier Core Not Found',

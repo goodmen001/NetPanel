@@ -135,10 +135,9 @@ Source: "..\dist\netpanel-windows-amd64.exe"; DestDir: "{app}"; DestName: "{#App
 ; 服务管理脚本
 Source: "..\scripts\service-windows.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
-; 配置文件（首次安装时复制，升级时不覆盖用户配置）
+; 配置文件（首次安装时复制，升级时不覆盖用户配置；文件不存在时跳过）
 Source: "..\scripts\config.example.yaml"; DestDir: "{#AppDataDir}"; DestName: "config.yaml"; \
-  Flags: onlyifdoesntexist uninsneveruninstall; \
-  Check: FileExists(ExpandConstant('{src}\..\scripts\config.example.yaml'))
+  Flags: onlyifdoesntexist uninsneveruninstall skipifsourcedoesntexist
 
 ; 可选：EasyTier 二进制（如果存在则一并打包）
 Source: "..\dist\bin\easytier-core.exe"; DestDir: "{#AppDataDir}\bin"; Flags: ignoreversion skipifsourcedoesntexist

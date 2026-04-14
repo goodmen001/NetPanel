@@ -112,11 +112,11 @@ english.UninstallKeepData=Uninstall (keep user data)
 
 [Tasks]
 ; 服务选项
-Name: "installservice";  Description: "{cm:InstallService}";     GroupDescription: "{cm:ServiceGroupDesc}"; Flags: checked
-Name: "startservice";    Description: "{cm:StartAfterInstall}";  GroupDescription: "{cm:ServiceGroupDesc}"; Flags: checked
+Name: "installservice";  Description: "{cm:InstallService}";     GroupDescription: "{cm:ServiceGroupDesc}"
+Name: "startservice";    Description: "{cm:StartAfterInstall}";  GroupDescription: "{cm:ServiceGroupDesc}"
 ; 其他选项
 Name: "desktopicon";     Description: "{cm:CreateDesktopIcon}";  GroupDescription: "{cm:OtherGroupDesc}"
-Name: "openwebui";       Description: "{cm:OpenWebUI}";          GroupDescription: "{cm:OtherGroupDesc}";   Flags: checked
+Name: "openwebui";       Description: "{cm:OpenWebUI}";          GroupDescription: "{cm:OtherGroupDesc}"
 
 ; ─── [Dirs] ───────────────────────────────────────────────────────────────────
 

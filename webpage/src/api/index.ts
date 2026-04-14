@@ -109,6 +109,9 @@ export const wireguardApi = {
   createPeer: (wgId: number, data: any) => request.post(`/v1/wireguard/${wgId}/peers`, data),
   updatePeer: (wgId: number, peerId: number, data: any) => request.put(`/v1/wireguard/${wgId}/peers/${peerId}`, data),
   deletePeer: (wgId: number, peerId: number) => request.delete(`/v1/wireguard/${wgId}/peers/${peerId}`),
+  // 对等节点配置文件下载 & 二维码（直接返回 URL，由前端触发下载/展示）
+  getPeerConfigUrl: (wgId: number, peerId: number) => `/api/v1/wireguard/${wgId}/peers/${peerId}/config`,
+  getPeerQRCodeUrl: (wgId: number, peerId: number) => `/api/v1/wireguard/${wgId}/peers/${peerId}/qrcode`,
 }
 
 // ===== DDNS =====

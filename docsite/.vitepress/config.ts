@@ -1,15 +1,15 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
-  // GitHub Pages 子路径，部署时替换为实际仓库名
-  base: '/NetPanelPage/',
+  // 自定义域名部署在根路径
+  base: '/',
 
   lang: 'zh-CN',
   title: 'NetPanel',
   description: '面向家庭和小型网络环境的内网穿透与网络管理面板',
 
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/NetPanelPage/logo.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
     ['meta', { name: 'theme-color', content: '#1677ff' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'NetPanel' }],

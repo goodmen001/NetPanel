@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import {
   Table, Button, Space, Switch, Modal, Form, Input, InputNumber,
-  Popconfirm, message, Typography, Tooltip, Row, Col, Tabs, Tag, Divider,
+  Popconfirm, message, Typography, Tooltip, Row, Col, Tabs, Tag, Divider, Image,
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined,
-  PlayCircleOutlined, StopOutlined, SettingOutlined, LinkOutlined,
+  PlayCircleOutlined, StopOutlined, SettingOutlined,
   SafetyOutlined, KeyOutlined, CopyOutlined, ReloadOutlined, TeamOutlined,
+  DownloadOutlined, QrcodeOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { wireguardApi } from '../api'
@@ -40,6 +41,11 @@ const Wireguard: React.FC = () => {
   const [currentWgId, setCurrentWgId] = useState<number | null>(null)
   const [peerListModalOpen, setPeerListModalOpen] = useState(false)
   const [currentWgName, setCurrentWgName] = useState('')
+
+  // 二维码弹窗
+  const [qrModalOpen, setQrModalOpen] = useState(false)
+  const [qrImageUrl, setQrImageUrl] = useState('')
+  const [qrPeerName, setQrPeerName] = useState('')
 
   const fetchData = async () => {
     setLoading(true)
@@ -150,6 +156,27 @@ const Wireguard: React.FC = () => {
     setPeerEditRecord(peer)
     peerForm.setFieldsValue(peer)
     setPeerModalOpen(true)
+  }
+
+  // 下载 Peer 配置文件
+  const handleDownloadPeerConfig = (peer: any) => {
+    if (!currentWgId) return
+    const url = wireguardApi.getPeerConfigUrl(currentWgId, peer.id)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${peer.name || 'peer-' + peer.id}.conf`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+
+  // 查看 Peer 二维码
+  const handleShowQRCode = (peer: any) => {
+    if (!currentWgId) return
+    const url = wireguardApi.getPeerQRCodeUrl(currentWgId, peer.id)
+    setQrImageUrl(url)
+    setQrPeerName(peer.name || `Peer ${peer.id}`)
+    setQrModalOpen(true)
   }
 
   const handlePeerSubmit = async () => {
@@ -267,9 +294,15 @@ const Wireguard: React.FC = () => {
       render: (v: number) => v > 0 ? `${v}s` : '-',
     },
     {
-      title: t('common.action'), width: 100,
+      title: t('common.action'), width: 160,
       render: (_: any, r: any) => (
         <Space size={4}>
+          <Tooltip title={t('wireguard.downloadConfig')}>
+            <Button size="small" icon={<DownloadOutlined />} onClick={() => handleDownloadPeerConfig(r)} />
+          </Tooltip>
+          <Tooltip title={t('wireguard.viewQRCode')}>
+            <Button size="small" icon={<QrcodeOutlined />} onClick={() => handleShowQRCode(r)} />
+          </Tooltip>
           <Tooltip title={t('common.edit')}>
             <Button size="small" icon={<EditOutlined />} onClick={() => handleEditPeer(r)} />
           </Tooltip>
@@ -496,6 +529,28 @@ const Wireguard: React.FC = () => {
           dataSource={peers} columns={peerColumns} rowKey="id" loading={peersLoading}
           size="small" pagination={false}
         />
+      </Modal>
+
+      {/* 二维码弹窗 */}
+      <Modal
+        title={`${t('wireguard.viewQRCode')} - ${qrPeerName}`}
+        open={qrModalOpen}
+        onCancel={() => setQrModalOpen(false)}
+        footer={null}
+        width={320}
+        destroyOnHidden
+        styles={{ body: { textAlign: 'center', padding: '16px 24px 24px' } }}
+      >
+        <div style={{ marginBottom: 12 }}>
+          <Tag color="blue" style={{ fontSize: 12 }}>{t('wireguard.qrCodeTip')}</Tag>
+        </div>
+        {qrImageUrl && (
+          <img
+            src={qrImageUrl}
+            alt="WireGuard QR Code"
+            style={{ width: 256, height: 256, borderRadius: 8, border: '1px solid #f0f0f0' }}
+          />
+        )}
       </Modal>
 
       {/* 对等节点编辑弹窗 */}

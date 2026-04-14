@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+
+	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/gin-gonic/gin"
 	"github.com/netpanel/netpanel/model"
@@ -168,4 +171,115 @@ func (h *WireguardHandler) DeletePeer(c *gin.Context) {
 	h.mgr.ReloadConfig(uint(wgID))
 	logger.WriteLog("info", "wireguard", fmt.Sprintf("删除WireGuard对等节点 [%d]", peerID))
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "删除成功"})
+}
+
+// buildPeerClientConfig 为指定 Peer 生成客户端 .conf 配置文件内容
+// 客户端配置：[Interface] 使用 Peer 自身的 IP（从 AllowedIPs 取第一个 /32 地址），
+// [Peer] 指向服务端（本 WireGuard 接口）的公钥和监听地址。
+func buildPeerClientConfig(wg *model.WireguardConfig, peer *model.WireguardPeer) string {
+	var sb strings.Builder
+
+	// [Interface] 段 —— 客户端自身配置
+	sb.WriteString("[Interface]\n")
+	// 客户端需要自己的私钥，此处留空提示用户填写
+	sb.WriteString("# PrivateKey = <请填写客户端私钥>\n")
+	// 从 AllowedIPs 中取第一个地址作为客户端 IP 提示
+	if peer.AllowedIPs != "" {
+		firstIP := strings.Split(peer.AllowedIPs, ",")[0]
+		firstIP = strings.TrimSpace(firstIP)
+		// 将 /32 或 /128 改为 /24 等子网，或直接使用
+		sb.WriteString(fmt.Sprintf("Address = %s\n", firstIP))
+	}
+	if wg.DNS != "" {
+		sb.WriteString(fmt.Sprintf("DNS = %s\n", wg.DNS))
+	}
+	if wg.MTU > 0 {
+		sb.WriteString(fmt.Sprintf("MTU = %d\n", wg.MTU))
+	}
+
+	// [Peer] 段 —— 服务端信息
+	sb.WriteString("\n[Peer]\n")
+	if wg.PublicKey != "" {
+		sb.WriteString(fmt.Sprintf("PublicKey = %s\n", wg.PublicKey))
+	}
+	if peer.PresharedKey != "" {
+		sb.WriteString(fmt.Sprintf("PresharedKey = %s\n", peer.PresharedKey))
+	}
+	if peer.Endpoint != "" {
+		sb.WriteString(fmt.Sprintf("Endpoint = %s\n", peer.Endpoint))
+	}
+	// AllowedIPs 客户端侧通常为 0.0.0.0/0（全流量）或具体子网
+	if peer.AllowedIPs != "" {
+		sb.WriteString(fmt.Sprintf("AllowedIPs = %s\n", peer.AllowedIPs))
+	}
+	if peer.PersistentKeepalive > 0 {
+		sb.WriteString(fmt.Sprintf("PersistentKeepalive = %d\n", peer.PersistentKeepalive))
+	}
+
+	return sb.String()
+}
+
+// GetPeerConfig 下载指定 Peer 的客户端隧道配置文件
+// GET /wireguard/:id/peers/:pid/config
+func (h *WireguardHandler) GetPeerConfig(c *gin.Context) {
+	wgID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	peerID, _ := strconv.ParseUint(c.Param("pid"), 10, 64)
+
+	var wg model.WireguardConfig
+	if err := h.db.First(&wg, wgID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "WireGuard 接口不存在"})
+		return
+	}
+
+	var peer model.WireguardPeer
+	if err := h.db.Where("id = ? AND wireguard_id = ?", peerID, wgID).First(&peer).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "对等节点不存在"})
+		return
+	}
+
+	content := buildPeerClientConfig(&wg, &peer)
+
+	// 文件名：使用节点名称，去掉非法字符
+	filename := peer.Name
+	if filename == "" {
+		filename = fmt.Sprintf("peer-%d", peerID)
+	}
+	// 简单清理文件名
+	filename = strings.ReplaceAll(filename, " ", "_")
+	filename = strings.ReplaceAll(filename, "/", "-")
+	filename += ".conf"
+
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Header("Content-Type", "text/plain; charset=utf-8")
+	c.String(http.StatusOK, content)
+}
+
+// GetPeerQRCode 返回指定 Peer 客户端配置的二维码 PNG 图片
+// GET /wireguard/:id/peers/:pid/qrcode
+func (h *WireguardHandler) GetPeerQRCode(c *gin.Context) {
+	wgID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	peerID, _ := strconv.ParseUint(c.Param("pid"), 10, 64)
+
+	var wg model.WireguardConfig
+	if err := h.db.First(&wg, wgID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "WireGuard 接口不存在"})
+		return
+	}
+
+	var peer model.WireguardPeer
+	if err := h.db.Where("id = ? AND wireguard_id = ?", peerID, wgID).First(&peer).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "对等节点不存在"})
+		return
+	}
+
+	content := buildPeerClientConfig(&wg, &peer)
+
+	png, err := qrcode.Encode(content, qrcode.Medium, 256)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "生成二维码失败: " + err.Error()})
+		return
+	}
+
+	c.Header("Content-Type", "image/png")
+	c.Data(http.StatusOK, "image/png", png)
 }

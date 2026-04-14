@@ -188,6 +188,8 @@ func NewRouter(opts RouterOptions) *gin.Engine {
 	auth.POST("/wireguard/:id/peers", wgHandler.CreatePeer)
 	auth.PUT("/wireguard/:id/peers/:pid", wgHandler.UpdatePeer)
 	auth.DELETE("/wireguard/:id/peers/:pid", wgHandler.DeletePeer)
+	auth.GET("/wireguard/:id/peers/:pid/config", wgHandler.GetPeerConfig)
+	auth.GET("/wireguard/:id/peers/:pid/qrcode", wgHandler.GetPeerQRCode)
 
 	// DDNS
 	ddnsHandler := handlers.NewDDNSHandler(opts.DB, opts.Log, opts.DdnsMgr)

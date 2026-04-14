@@ -1483,6 +1483,9 @@ const en = {
     allowedIPsTip: 'IP ranges allowed through the tunnel, separated by commas. 0.0.0.0/0 means all traffic',
     keepalive: 'Keepalive',
     keepaliveTip: 'Persistent keepalive interval (seconds), recommended 25 for NAT peers',
+    downloadConfig: 'Download Config',
+    viewQRCode: 'View QR Code',
+    qrCodeTip: 'Scan with WireGuard client to import config quickly',
   },
   settings: {
     title: 'Settings',

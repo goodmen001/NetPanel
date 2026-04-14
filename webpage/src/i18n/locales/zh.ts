@@ -1521,6 +1521,9 @@ const zh = {
     allowedIPsTip: '允许通过隧道的 IP 段，多个用逗号分隔。0.0.0.0/0 表示所有流量',
     keepalive: '保活间隔',
     keepaliveTip: '持久保活间隔（秒），NAT 后的节点建议设为 25',
+    downloadConfig: '下载隧道配置',
+    viewQRCode: '查看二维码',
+    qrCodeTip: '使用 WireGuard 客户端扫描二维码快速导入配置',
   },
   // 系统设置
   settings: {

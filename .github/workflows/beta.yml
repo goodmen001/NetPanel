@@ -545,7 +545,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          # 不使用 cache，desktop/package-lock.json 在首次 npm install 前不存在
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
 
       - name: Download backend binary artifact
         uses: actions/download-artifact@v4

@@ -409,6 +409,311 @@ body {
   color: rgba(255, 255, 255, 0.45) !important;
 }
 
+/* ===== 暗黑/玻璃模式 - 修复白色色块 ===== */
+
+/* Tooltip 气泡 */
+[data-theme="dark"] .ant-tooltip .ant-tooltip-inner,
+[data-theme="glass-light"] .ant-tooltip .ant-tooltip-inner,
+[data-theme="glass-dark"] .ant-tooltip .ant-tooltip-inner {
+  background: #2a2a2a !important;
+  color: rgba(255,255,255,0.85) !important;
+}
+[data-theme="dark"] .ant-tooltip .ant-tooltip-arrow::before,
+[data-theme="glass-light"] .ant-tooltip .ant-tooltip-arrow::before,
+[data-theme="glass-dark"] .ant-tooltip .ant-tooltip-arrow::before {
+  background: #2a2a2a !important;
+}
+
+/* Popover / Popconfirm */
+[data-theme="dark"] .ant-popover .ant-popover-inner,
+[data-theme="glass-light"] .ant-popover .ant-popover-inner,
+[data-theme="glass-dark"] .ant-popover .ant-popover-inner {
+  background: #242424 !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+}
+[data-theme="dark"] .ant-popover .ant-popover-title,
+[data-theme="glass-light"] .ant-popover .ant-popover-title,
+[data-theme="glass-dark"] .ant-popover .ant-popover-title {
+  color: rgba(255,255,255,0.85) !important;
+  border-bottom-color: rgba(255,255,255,0.08) !important;
+}
+[data-theme="dark"] .ant-popover-arrow::before,
+[data-theme="glass-light"] .ant-popover-arrow::before,
+[data-theme="glass-dark"] .ant-popover-arrow::before {
+  background: #242424 !important;
+}
+
+/* Select 下拉面板 */
+[data-theme="dark"] .ant-select-dropdown,
+[data-theme="glass-light"] .ant-select-dropdown,
+[data-theme="glass-dark"] .ant-select-dropdown {
+  background: #242424 !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.5) !important;
+}
+[data-theme="dark"] .ant-select-item,
+[data-theme="glass-light"] .ant-select-item,
+[data-theme="glass-dark"] .ant-select-item {
+  color: rgba(255,255,255,0.75) !important;
+}
+[data-theme="dark"] .ant-select-item-option-active,
+[data-theme="glass-light"] .ant-select-item-option-active,
+[data-theme="glass-dark"] .ant-select-item-option-active {
+  background: rgba(255,255,255,0.08) !important;
+}
+[data-theme="dark"] .ant-select-item-option-selected,
+[data-theme="glass-light"] .ant-select-item-option-selected,
+[data-theme="glass-dark"] .ant-select-item-option-selected {
+  background: rgba(22,119,255,0.2) !important;
+  color: #4096ff !important;
+}
+
+/* Dropdown 菜单 */
+[data-theme="dark"] .ant-dropdown .ant-dropdown-menu,
+[data-theme="glass-light"] .ant-dropdown .ant-dropdown-menu,
+[data-theme="glass-dark"] .ant-dropdown .ant-dropdown-menu {
+  background: #242424 !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.5) !important;
+}
+[data-theme="dark"] .ant-dropdown .ant-dropdown-menu-item,
+[data-theme="glass-light"] .ant-dropdown .ant-dropdown-menu-item,
+[data-theme="glass-dark"] .ant-dropdown .ant-dropdown-menu-item {
+  color: rgba(255,255,255,0.75) !important;
+}
+[data-theme="dark"] .ant-dropdown .ant-dropdown-menu-item:hover,
+[data-theme="glass-light"] .ant-dropdown .ant-dropdown-menu-item:hover,
+[data-theme="glass-dark"] .ant-dropdown .ant-dropdown-menu-item:hover {
+  background: rgba(255,255,255,0.08) !important;
+}
+[data-theme="dark"] .ant-dropdown .ant-dropdown-menu-item-danger,
+[data-theme="glass-light"] .ant-dropdown .ant-dropdown-menu-item-danger,
+[data-theme="glass-dark"] .ant-dropdown .ant-dropdown-menu-item-danger {
+  color: #ff4d4f !important;
+}
+
+/* Tabs 标签页 */
+[data-theme="dark"] .ant-tabs .ant-tabs-nav,
+[data-theme="glass-light"] .ant-tabs .ant-tabs-nav,
+[data-theme="glass-dark"] .ant-tabs .ant-tabs-nav {
+  background: transparent !important;
+}
+[data-theme="dark"] .ant-tabs-tab,
+[data-theme="glass-light"] .ant-tabs-tab,
+[data-theme="glass-dark"] .ant-tabs-tab {
+  color: rgba(255,255,255,0.5) !important;
+}
+[data-theme="dark"] .ant-tabs-tab-active .ant-tabs-tab-btn,
+[data-theme="glass-light"] .ant-tabs-tab-active .ant-tabs-tab-btn,
+[data-theme="glass-dark"] .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #4096ff !important;
+}
+[data-theme="dark"] .ant-tabs-content-holder,
+[data-theme="glass-light"] .ant-tabs-content-holder,
+[data-theme="glass-dark"] .ant-tabs-content-holder {
+  background: transparent !important;
+}
+
+/* Alert 提示框 */
+[data-theme="dark"] .ant-alert,
+[data-theme="glass-light"] .ant-alert,
+[data-theme="glass-dark"] .ant-alert {
+  border-color: rgba(255,255,255,0.1) !important;
+}
+[data-theme="dark"] .ant-alert-info,
+[data-theme="glass-light"] .ant-alert-info,
+[data-theme="glass-dark"] .ant-alert-info {
+  background: rgba(22,119,255,0.12) !important;
+}
+[data-theme="dark"] .ant-alert-success,
+[data-theme="glass-light"] .ant-alert-success,
+[data-theme="glass-dark"] .ant-alert-success {
+  background: rgba(82,196,26,0.12) !important;
+}
+[data-theme="dark"] .ant-alert-warning,
+[data-theme="glass-light"] .ant-alert-warning,
+[data-theme="glass-dark"] .ant-alert-warning {
+  background: rgba(250,173,20,0.12) !important;
+}
+[data-theme="dark"] .ant-alert-error,
+[data-theme="glass-light"] .ant-alert-error,
+[data-theme="glass-dark"] .ant-alert-error {
+  background: rgba(255,77,79,0.12) !important;
+}
+
+/* Card 卡片 */
+[data-theme="dark"] .ant-card,
+[data-theme="glass-light"] .ant-card,
+[data-theme="glass-dark"] .ant-card {
+  background: #1a1a1a !important;
+  border-color: rgba(255,255,255,0.08) !important;
+}
+[data-theme="glass-light"] .ant-card,
+[data-theme="glass-dark"] .ant-card {
+  background: rgba(255,255,255,0.06) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+}
+[data-theme="dark"] .ant-card-head,
+[data-theme="glass-light"] .ant-card-head,
+[data-theme="glass-dark"] .ant-card-head {
+  border-bottom-color: rgba(255,255,255,0.08) !important;
+  background: transparent !important;
+}
+
+/* Table 表格行 */
+[data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr > td,
+[data-theme="glass-light"] .ant-table-wrapper .ant-table-tbody > tr > td,
+[data-theme="glass-dark"] .ant-table-wrapper .ant-table-tbody > tr > td {
+  border-bottom-color: rgba(255,255,255,0.06) !important;
+}
+[data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr:hover > td,
+[data-theme="glass-light"] .ant-table-wrapper .ant-table-tbody > tr:hover > td,
+[data-theme="glass-dark"] .ant-table-wrapper .ant-table-tbody > tr:hover > td {
+  background: rgba(255,255,255,0.04) !important;
+}
+[data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr.ant-table-row-selected > td,
+[data-theme="glass-light"] .ant-table-wrapper .ant-table-tbody > tr.ant-table-row-selected > td,
+[data-theme="glass-dark"] .ant-table-wrapper .ant-table-tbody > tr.ant-table-row-selected > td {
+  background: rgba(22,119,255,0.12) !important;
+}
+
+/* Input / InputNumber / TextArea */
+[data-theme="dark"] .ant-input,
+[data-theme="dark"] .ant-input-affix-wrapper,
+[data-theme="dark"] .ant-input-number,
+[data-theme="dark"] .ant-input-number-input,
+[data-theme="glass-light"] .ant-input,
+[data-theme="glass-light"] .ant-input-affix-wrapper,
+[data-theme="glass-light"] .ant-input-number,
+[data-theme="glass-light"] .ant-input-number-input,
+[data-theme="glass-dark"] .ant-input,
+[data-theme="glass-dark"] .ant-input-affix-wrapper,
+[data-theme="glass-dark"] .ant-input-number,
+[data-theme="glass-dark"] .ant-input-number-input {
+  background: rgba(255,255,255,0.05) !important;
+  border-color: rgba(255,255,255,0.12) !important;
+  color: rgba(255,255,255,0.85) !important;
+}
+[data-theme="dark"] .ant-input:focus,
+[data-theme="dark"] .ant-input-affix-wrapper:focus,
+[data-theme="dark"] .ant-input-affix-wrapper-focused,
+[data-theme="glass-light"] .ant-input:focus,
+[data-theme="glass-light"] .ant-input-affix-wrapper:focus,
+[data-theme="glass-light"] .ant-input-affix-wrapper-focused,
+[data-theme="glass-dark"] .ant-input:focus,
+[data-theme="glass-dark"] .ant-input-affix-wrapper:focus,
+[data-theme="glass-dark"] .ant-input-affix-wrapper-focused {
+  border-color: #1677ff !important;
+  box-shadow: 0 0 0 2px rgba(22,119,255,0.2) !important;
+}
+[data-theme="dark"] .ant-input[disabled],
+[data-theme="dark"] .ant-input-affix-wrapper-disabled,
+[data-theme="glass-light"] .ant-input[disabled],
+[data-theme="glass-light"] .ant-input-affix-wrapper-disabled,
+[data-theme="glass-dark"] .ant-input[disabled],
+[data-theme="glass-dark"] .ant-input-affix-wrapper-disabled {
+  background: rgba(255,255,255,0.03) !important;
+  color: rgba(255,255,255,0.3) !important;
+}
+
+/* Select 选择器本体 */
+[data-theme="dark"] .ant-select .ant-select-selector,
+[data-theme="glass-light"] .ant-select .ant-select-selector,
+[data-theme="glass-dark"] .ant-select .ant-select-selector {
+  background: rgba(255,255,255,0.05) !important;
+  border-color: rgba(255,255,255,0.12) !important;
+}
+[data-theme="dark"] .ant-select-disabled .ant-select-selector,
+[data-theme="glass-light"] .ant-select-disabled .ant-select-selector,
+[data-theme="glass-dark"] .ant-select-disabled .ant-select-selector {
+  background: rgba(255,255,255,0.03) !important;
+}
+
+/* Switch 开关 */
+[data-theme="dark"] .ant-switch:not(.ant-switch-checked),
+[data-theme="glass-light"] .ant-switch:not(.ant-switch-checked),
+[data-theme="glass-dark"] .ant-switch:not(.ant-switch-checked) {
+  background: rgba(255,255,255,0.2) !important;
+}
+
+/* Checkbox / Radio */
+[data-theme="dark"] .ant-checkbox-inner,
+[data-theme="glass-light"] .ant-checkbox-inner,
+[data-theme="glass-dark"] .ant-checkbox-inner {
+  background: rgba(255,255,255,0.05) !important;
+  border-color: rgba(255,255,255,0.2) !important;
+}
+[data-theme="dark"] .ant-radio-inner,
+[data-theme="glass-light"] .ant-radio-inner,
+[data-theme="glass-dark"] .ant-radio-inner {
+  background: rgba(255,255,255,0.05) !important;
+  border-color: rgba(255,255,255,0.2) !important;
+}
+
+/* Form 表单标签 */
+[data-theme="dark"] .ant-form-item-label > label,
+[data-theme="glass-light"] .ant-form-item-label > label,
+[data-theme="glass-dark"] .ant-form-item-label > label {
+  color: rgba(255,255,255,0.75) !important;
+}
+
+/* Divider 分割线 */
+[data-theme="dark"] .ant-divider,
+[data-theme="glass-light"] .ant-divider,
+[data-theme="glass-dark"] .ant-divider {
+  border-color: rgba(255,255,255,0.1) !important;
+}
+
+/* Typography Text */
+[data-theme="dark"] .ant-typography,
+[data-theme="glass-light"] .ant-typography,
+[data-theme="glass-dark"] .ant-typography {
+  color: inherit;
+}
+
+/* Modal 弹窗（暗黑模式） */
+[data-theme="dark"] .ant-modal-content {
+  background: #1f1f1f !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+}
+[data-theme="dark"] .ant-modal-header {
+  background: #1f1f1f !important;
+}
+[data-theme="dark"] .ant-modal-footer {
+  background: #1f1f1f !important;
+}
+
+/* Drawer 抽屉（暗黑模式） */
+[data-theme="dark"] .ant-drawer-content {
+  background: #1a1a1a !important;
+}
+[data-theme="dark"] .ant-drawer-header {
+  background: #1a1a1a !important;
+  border-bottom-color: rgba(255,255,255,0.08) !important;
+}
+
+/* Tag 标签（暗黑模式） */
+[data-theme="dark"] .ant-tag,
+[data-theme="glass-light"] .ant-tag,
+[data-theme="glass-dark"] .ant-tag {
+  border-color: rgba(255,255,255,0.15) !important;
+}
+
+/* Spin 加载 */
+[data-theme="dark"] .ant-spin-container::after,
+[data-theme="glass-light"] .ant-spin-container::after,
+[data-theme="glass-dark"] .ant-spin-container::after {
+  background: rgba(0,0,0,0.5) !important;
+}
+
+/* Empty 空状态 */
+[data-theme="dark"] .ant-empty-description,
+[data-theme="glass-light"] .ant-empty-description,
+[data-theme="glass-dark"] .ant-empty-description {
+  color: rgba(255,255,255,0.3) !important;
+}
+
 /* ===== 按钮美化 ===== */
 .ant-btn {
   font-weight: 500 !important;

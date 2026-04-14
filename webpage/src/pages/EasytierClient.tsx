@@ -150,6 +150,50 @@ const EasytierClient: React.FC = () => {
   const [quickModalOpen, setQuickModalOpen] = useState(false)
   const [quickForm] = Form.useForm()
 
+  // 导入
+  const [importing, setImporting] = useState(false)
+  const importInputRef = React.useRef<HTMLInputElement>(null)
+
+  // 导出所有配置为 JSON 文件
+  const handleExport = () => {
+    if (data.length === 0) { message.warning('暂无配置可导出'); return }
+    const exportData = data.map(({ id, status, last_error, created_at, updated_at, ...rest }: any) => rest)
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `easytier-client-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    message.success(`已导出 ${exportData.length} 条配置`)
+  }
+
+  // 导入配置
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setImporting(true)
+    try {
+      const text = await file.text()
+      const list = JSON.parse(text)
+      if (!Array.isArray(list)) { message.error('文件格式错误，需为 JSON 数组'); return }
+      let ok = 0, fail = 0
+      for (const item of list) {
+        try {
+          await api.create({ ...item, enable: false, status: 'stopped' })
+          ok++
+        } catch { fail++ }
+      }
+      message.success(`导入完成：成功 ${ok} 条${fail > 0 ? `，失败 ${fail} 条` : ''}`)
+      fetchData()
+    } catch {
+      message.error('文件解析失败，请确认为有效的 JSON 文件')
+    } finally {
+      setImporting(false)
+    }
+  }
+
   // 日志弹窗
   const [logModalOpen, setLogModalOpen] = useState(false)
   const [logRecord, setLogRecord] = useState<any>(null)
@@ -1043,6 +1087,15 @@ const EasytierClient: React.FC = () => {
           type="warning" showIcon closable style={{ marginBottom: 16 }}
         />
       )}
+      {/* 隐藏的文件导入输入框 */}
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".json"
+        style={{ display: 'none' }}
+        onChange={handleImportFile}
+      />
+
       {!isRemote && (
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>{t('easytier.clientTitle')}</Typography.Title>
@@ -1055,6 +1108,8 @@ const EasytierClient: React.FC = () => {
           >
             下载 EasyTier
           </Button>
+          <Button icon={<DownloadOutlined />} onClick={handleExport}>导出配置</Button>
+          <Button icon={<PlusOutlined />} loading={importing} onClick={() => importInputRef.current?.click()}>导入配置</Button>
           <Button icon={<ThunderboltOutlined />} onClick={handleQuickCreate} style={{ background: '#52c41a', borderColor: '#52c41a', color: '#fff' }}>快速创建</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
         </Space>
@@ -1063,6 +1118,8 @@ const EasytierClient: React.FC = () => {
       {isRemote && (
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
         <Space>
+          <Button icon={<DownloadOutlined />} onClick={handleExport}>导出配置</Button>
+          <Button icon={<PlusOutlined />} loading={importing} onClick={() => importInputRef.current?.click()}>导入配置</Button>
           <Button icon={<ThunderboltOutlined />} onClick={handleQuickCreate} style={{ background: '#52c41a', borderColor: '#52c41a', color: '#fff' }}>快速创建</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
         </Space>

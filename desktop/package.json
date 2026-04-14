@@ -6,6 +6,10 @@
   "author": "NetPanel Team",
   "license": "GPL-3.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PIKACHUIM/NetPanel.git"
+  },
   "scripts": {
     "dev": "concurrently \"tsc -w\" \"electron .\"",
     "build": "tsc",

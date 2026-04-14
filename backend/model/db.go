@@ -89,7 +89,7 @@ func autoMigrate(db *gorm.DB) error {
 		&SystemLog{},
 		&User{},
 		&WireguardConfig{},
-		&WireguardPeer{},WireguardPeer{},
+		&WireguardPeer{}, WireguardPeer{},
 		&MeshNode{},
 		&MeshNodeEvent{},
 	)
@@ -102,7 +102,7 @@ func initDefaultData(db *gorm.DB) {
 	if count == 0 {
 		db.Create(&SystemConfig{
 			Key:   "admin_password",
-			Value: "admin123", // 默认密码，首次登录后应修改
+			Value: "admin", // 默认密码，首次登录后应修改
 		})
 		db.Create(&SystemConfig{
 			Key:   "language",
@@ -120,7 +120,7 @@ func initDefaultData(db *gorm.DB) {
 	if userCount == 0 {
 		// 从 SystemConfig 读取密码
 		var cfg SystemConfig
-		password := "admin123"
+		password := "admin"
 		if err := db.Where("key = ?", "admin_password").First(&cfg).Error; err == nil {
 			password = cfg.Value
 		}

@@ -83,7 +83,7 @@ VersionInfoProductVersion={#AppVersionNumeric}
 ; ─── [Languages] ──────────────────────────────────────────────────────────────
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl,ChineseSimplified.isl"
+Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 Name: "english";           MessagesFile: "compiler:Default.isl"
 
 ; ─── [CustomMessages] ─────────────────────────────────────────────────────────

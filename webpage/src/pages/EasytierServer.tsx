@@ -40,6 +40,8 @@ const PROTOCOL_OPTIONS = [
 const genNetworkName = () => Math.random().toString(36).slice(2, 10)
 // 随机生成网络密码（16位字母数字）
 const genNetworkPassword = () => Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10)
+// 随机生成 RPC 门户端口（15000~25000，避免与常用端口冲突）
+const genRpcPort = () => String(Math.floor(Math.random() * 10000) + 15000)
 
 const parseListenPorts = (s: string): string[] => {
   if (!s) return []
@@ -218,6 +220,7 @@ const EasytierServer: React.FC = () => {
       listen_addr: '0.0.0.0',
       listen_ports_list: [{ proto: 'tcp', port: '11010' }, { proto: 'udp', port: '11010' }],
       multi_thread: true,
+      rpc_portal: genRpcPort(),
     })
     setModalOpen(true)
   }

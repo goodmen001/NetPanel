@@ -37,6 +37,8 @@ const PROTOCOL_OPTIONS = [
 ]
 
 // ---- 数据解析工具 ----
+// 随机生成 RPC 门户端口（15000~25000，避免与常用端口冲突）
+const genRpcPort = () => String(Math.floor(Math.random() * 10000) + 15000)
 const parseAddrStr = (s: string): { proto: string; host: string; port: string } => {
   s = s.trim()
   const m = s.match(/^(\w+):\/\/(.+):(\d+)$/)
@@ -298,6 +300,7 @@ const EasytierClient: React.FC = () => {
       port_forwards_list: [],
       stun_servers_list: [],
       stun_servers_v6_list: [],
+      rpc_portal: genRpcPort(),
     })
     setModalOpen(true)
   }

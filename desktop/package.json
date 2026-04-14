@@ -18,7 +18,8 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.3.9",
+    "netpanel-desktop": "file:"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",

@@ -46,7 +46,7 @@ DisableProgramGroupPage=yes
 ; 输出
 OutputDir=..\dist
 OutputBaseFilename=NetPanel-Setup-{#AppVersion}-windows-amd64
-SetupIconFile=..\webpage\public\favicon.ico
+SetupIconFile=..\backend\assets\frps\static\favicon.ico
 
 ; 压缩
 Compression=lzma2/ultra64

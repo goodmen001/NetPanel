@@ -1070,7 +1070,7 @@ const EasytierClient: React.FC = () => {
     <div>
       {(hasError || hasBinaryError) && !isRemote && (
         <Alert
-          message="EasyTier 核心程序未找到"
+          message={t('easytier.binaryNotFound')}
           description={
             <span>
               请先下载 <code>easytier-core</code> 二进制文件，放置到程序目录的 <code>bin/</code> 文件夹下。
@@ -1101,16 +1101,16 @@ const EasytierClient: React.FC = () => {
         <Typography.Title level={4} style={{ margin: 0 }}>{t('easytier.clientTitle')}</Typography.Title>
         <Space>
           <Button
-            icon={<DownloadOutlined />}
+            icon={<LinkOutlined />}
             href="https://github.com/EasyTier/EasyTier/releases"
             target="_blank"
             rel="noopener noreferrer"
           >
-            下载 EasyTier
+            EasyTier {t('common.officialSite')}
           </Button>
-          <Button icon={<DownloadOutlined />} onClick={handleExport}>导出配置</Button>
-          <Button icon={<PlusOutlined />} loading={importing} onClick={() => importInputRef.current?.click()}>导入配置</Button>
-          <Button icon={<ThunderboltOutlined />} onClick={handleQuickCreate} style={{ background: '#52c41a', borderColor: '#52c41a', color: '#fff' }}>快速创建</Button>
+          <Button icon={<DownloadOutlined />} onClick={handleExport}>{t('easytier.exportConfig')}</Button>
+          <Button icon={<PlusOutlined />} loading={importing} onClick={() => importInputRef.current?.click()}>{t('easytier.importConfig')}</Button>
+          <Button icon={<ThunderboltOutlined />} onClick={handleQuickCreate} style={{ background: '#52c41a', borderColor: '#52c41a', color: '#fff' }}>{t('easytier.quickCreate')}</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
         </Space>
       </div>
@@ -1197,11 +1197,11 @@ const EasytierClient: React.FC = () => {
           <Tabs
             size="small"
             items={[
-              { key: 'basic',      label: <span><SettingOutlined />  基本配置</span>, children: tabBasic },
-              { key: 'connection', label: <span><LinkOutlined />     连接设置</span>, children: tabConnection },
-              { key: 'routing',    label: <span><GlobalOutlined />   路由与代理</span>, children: tabRouting },
-              { key: 'features',   label: <span><ApiOutlined />      功能开关</span>, children: tabFeatures },
-              { key: 'other',      label: <span><SafetyOutlined />   安全与其他</span>, children: tabOther },
+              { key: 'basic',      label: <span><SettingOutlined />  {t('easytier.tabBasic')}</span>, children: tabBasic },
+              { key: 'connection', label: <span><LinkOutlined />     {t('easytier.tabConnection')}</span>, children: tabConnection },
+              { key: 'routing',    label: <span><GlobalOutlined />   {t('easytier.tabRouting')}</span>, children: tabRouting },
+              { key: 'features',   label: <span><ApiOutlined />      {t('easytier.tabFeatures')}</span>, children: tabFeatures },
+              { key: 'other',      label: <span><SafetyOutlined />   {t('easytier.tabOther')}</span>, children: tabOther },
             ]}
           />
         </Form>
@@ -1209,7 +1209,7 @@ const EasytierClient: React.FC = () => {
 
       {/* 日志 Modal */}
       <Modal
-        title={<Space><FileTextOutlined />实时日志 - {logRecord?.name}</Space>}
+        title={<Space><FileTextOutlined />{t('common.realtimeLogs')} - {logRecord?.name}</Space>}
         open={logModalOpen}
         onCancel={() => setLogModalOpen(false)}
         footer={[

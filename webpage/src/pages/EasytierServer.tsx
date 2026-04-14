@@ -829,17 +829,17 @@ const EasytierServer: React.FC = () => {
     <div>
       {hasBinaryError && (
         <Alert
-          message="EasyTier 核心程序未找到"
+          message={t('easytier.binaryNotFound')}
           description={
             <span>
-              请先下载 <code>easytier-core</code> 二进制文件，放置到程序目录的 <code>bin/</code> 文件夹下。
+              {t('easytier.binaryNotFoundTip')}
               <a
                 href="https://github.com/EasyTier/EasyTier/releases"
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ marginLeft: 8 }}
               >
-                <LinkOutlined /> 前往 GitHub Releases 下载
+                <LinkOutlined /> {t('easytier.downloadFromGithub')}
               </a>
             </span>
           }
@@ -863,16 +863,16 @@ const EasytierServer: React.FC = () => {
         <Typography.Title level={4} style={{ margin: 0 }}>{t('easytier.serverTitle')}</Typography.Title>
         <Space>
           <Button
-            icon={<DownloadOutlined />}
+            icon={<LinkOutlined />}
             href="https://github.com/EasyTier/EasyTier/releases"
             target="_blank"
             rel="noopener noreferrer"
           >
-            下载 EasyTier
+            EasyTier {t('common.officialSite')}
           </Button>
-          <Button icon={<DownloadOutlined />} onClick={handleExport}>导出配置</Button>
-          <Button icon={<PlusOutlined />} loading={importing} onClick={() => importInputRef.current?.click()}>导入配置</Button>
-          <Button icon={<ThunderboltOutlined />} onClick={handleQuickCreate} style={{ background: '#52c41a', borderColor: '#52c41a', color: '#fff' }}>快速创建</Button>
+          <Button icon={<DownloadOutlined />} onClick={handleExport}>{t('easytier.exportConfig')}</Button>
+          <Button icon={<PlusOutlined />} loading={importing} onClick={() => importInputRef.current?.click()}>{t('easytier.importConfig')}</Button>
+          <Button icon={<ThunderboltOutlined />} onClick={handleQuickCreate} style={{ background: '#52c41a', borderColor: '#52c41a', color: '#fff' }}>{t('easytier.quickCreate')}</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
         </Space>
       </div>
@@ -1038,7 +1038,7 @@ const EasytierServer: React.FC = () => {
 
       {/* 日志 Modal */}
       <Modal
-        title={<Space><FileTextOutlined />实时日志 - {logRecord?.name}</Space>}
+        title={<Space><FileTextOutlined />{t('common.realtimeLogs')} - {logRecord?.name}</Space>}
         open={logModalOpen}
         onCancel={() => setLogModalOpen(false)}
         footer={[

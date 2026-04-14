@@ -482,7 +482,17 @@ const Wireguard: React.FC = () => {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>{t('wireguard.title')}</Typography.Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
+        <Space>
+          <Button
+            icon={<DownloadOutlined />}
+            href="https://www.wireguard.com/install/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            WireGuard {t('common.officialSite')}
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
+        </Space>
       </div>
 
       <Table

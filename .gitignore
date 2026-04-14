@@ -82,3 +82,4 @@ go.work.sum
 /frp/
 /lucky/
 
+scripts/setup.iss.lock

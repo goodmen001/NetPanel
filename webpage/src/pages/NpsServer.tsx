@@ -698,7 +698,17 @@ const NpsServer: React.FC = () => {
       {!isRemote && (
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>{t('nps.serverTitle')}</Typography.Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
+        <Space>
+          <Button
+            icon={<LinkOutlined />}
+            href="https://github.com/ehang-io/nps"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            NPS {t('common.officialSite')}
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
+        </Space>
       </div>
       )}
       {isRemote && (

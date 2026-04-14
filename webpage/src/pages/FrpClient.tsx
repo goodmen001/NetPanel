@@ -1034,7 +1034,17 @@ const FrpClient: React.FC = () => {
             {!isRemote && (
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16}}>
                 <Typography.Title level={4} style={{margin: 0}}>{t('frp.clientTitle')}</Typography.Title>
-                <Button type="primary" icon={<PlusOutlined/>} onClick={handleCreate}>{t('common.create')}</Button>
+                <Space>
+                    <Button
+                        icon={<LinkOutlined/>}
+                        href="https://github.com/fatedier/frp"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        FRP {t('common.officialSite')}
+                    </Button>
+                    <Button type="primary" icon={<PlusOutlined/>} onClick={handleCreate}>{t('common.create')}</Button>
+                </Space>
             </div>
             )}
             {isRemote && (

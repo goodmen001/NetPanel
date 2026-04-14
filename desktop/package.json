@@ -21,9 +21,30 @@
     "dist:all": "npm run build && electron-builder -mwl",
     "postinstall": "electron-builder install-app-deps"
   },
+  "build": {
+    "appId": "com.netpanel.desktop",
+    "productName": "NetPanel",
+    "files": [
+      "dist/**/*",
+      "resources/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "resources",
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  },
   "dependencies": {
-    "electron-updater": "^6.3.9",
-    "netpanel-desktop": "file:"
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",

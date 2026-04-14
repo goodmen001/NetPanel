@@ -9,7 +9,7 @@ import {
   PlayCircleOutlined, StopOutlined, InfoCircleOutlined, MinusCircleOutlined,
   SettingOutlined, WifiOutlined, SafetyOutlined, ThunderboltOutlined,
   GlobalOutlined, ApiOutlined, FileTextOutlined,
-  ReloadOutlined, NodeIndexOutlined,
+  ReloadOutlined, NodeIndexOutlined, DownloadOutlined, LinkOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { easytierServerApi } from '../api'
@@ -217,6 +217,11 @@ const EasytierServer: React.FC = () => {
     checked ? await api.start(record.id) : await api.stop(record.id)
     fetchData()
   }
+
+  // 检测是否有二进制不存在的错误
+  const hasBinaryError = !isRemote && data.some(d =>
+    d.status === 'error' && d.last_error && d.last_error.includes('easytier-core')
+  )
 
   const columns = [
     { title: t('common.status'), dataIndex: 'status', width: 100, render: (s: string) => <StatusTag status={s} /> },
@@ -778,10 +783,40 @@ const EasytierServer: React.FC = () => {
 
   return (
     <div>
+      {hasBinaryError && (
+        <Alert
+          message="EasyTier 核心程序未找到"
+          description={
+            <span>
+              请先下载 <code>easytier-core</code> 二进制文件，放置到程序目录的 <code>bin/</code> 文件夹下。
+              <a
+                href="https://github.com/EasyTier/EasyTier/releases"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ marginLeft: 8 }}
+              >
+                <LinkOutlined /> 前往 GitHub Releases 下载
+              </a>
+            </span>
+          }
+          type="warning"
+          showIcon
+          closable
+          style={{ marginBottom: 16 }}
+        />
+      )}
       {!isRemote && (
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>{t('easytier.serverTitle')}</Typography.Title>
         <Space>
+          <Button
+            icon={<DownloadOutlined />}
+            href="https://github.com/EasyTier/EasyTier/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            下载 EasyTier
+          </Button>
           <Button icon={<ThunderboltOutlined />} onClick={handleQuickCreate} style={{ background: '#52c41a', borderColor: '#52c41a', color: '#fff' }}>快速创建</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('common.create')}</Button>
         </Space>

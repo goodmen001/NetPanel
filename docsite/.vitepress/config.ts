@@ -81,6 +81,7 @@ export default defineConfig({
           { text: '系统设置', link: '/guide/system' },
           { text: '用户管理', link: '/guide/users' },
           { text: '系统日志', link: '/guide/logs' },
+          { text: '官方资源与下载', link: '/guide/resources' },
         ]
       },
     ],
@@ -95,6 +96,12 @@ export default defineConfig({
             { text: '系统设置', link: '/guide/system' },
             { text: '用户管理', link: '/guide/users' },
             { text: '系统日志', link: '/guide/logs' },
+          ]
+        },
+        {
+          text: '资源与下载',
+          items: [
+            { text: '官方资源与下载', link: '/guide/resources' },
           ]
         }
       ],
@@ -181,7 +188,7 @@ export default defineConfig({
 
     // 社交链接
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/netpanel/netpanel' }
+      { icon: 'github', link: 'https://github.com/PIKACHUIM/NetPanel' }
     ],
 
     // 页脚
@@ -192,7 +199,7 @@ export default defineConfig({
 
     // 编辑链接
     editLink: {
-      pattern: 'https://github.com/netpanel/netpanel/edit/main/docs-site/:path',
+      pattern: 'https://github.com/PIKACHUIM/NetPanel/edit/main/docs-site/:path',
       text: '在 GitHub 上编辑此页'
     },
 

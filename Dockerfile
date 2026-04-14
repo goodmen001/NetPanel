@@ -31,8 +31,9 @@ COPY --from=xx / /
 # 安装 clang/lld 作为交叉编译工具链
 # clang 是单一二进制，天然支持多架构交叉编译，不依赖外部汇编器
 # 可彻底避免 gcc 交叉编译时 runtime/cgo 汇编器（as）架构不匹配的问题
-RUN apk add --no-cache clang lld musl-dev && \
-    xx-apk add --no-cache musl-dev
+# xx-apk 安装目标架构的 musl-dev 和 gcc，提供 crtbeginS.o / libgcc 等链接所需文件
+RUN apk add --no-cache clang lld musl-dev gcc && \
+    xx-apk add --no-cache musl-dev gcc
 
 WORKDIR /app
 

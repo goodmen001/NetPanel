@@ -1,0 +1,136 @@
+name: Build & Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+  # 👉 Docker Hub 仓库名（自己改）
+  DOCKERHUB_USERNAME: truenastest   # ← 改成你的 DockerHub 用户名
+  DOCKERHUB_IMAGE: truenastest/netpanel  # ← 改成你的仓库名
+
+  GO_VERSION: '1.21'
+  NODE_VERSION: '20'
+
+jobs:
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: webpage/package-lock.json
+
+      - name: Install dependencies
+        working-directory: webpage
+        run: npm ci
+
+      - name: Build webpage
+        working-directory: webpage
+        run: npm run build
+
+      - name: Upload webpage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webpage-dist
+          path: backend/embed/dist/
+          retention-days: 1
+
+  build-and-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: build-frontend
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download webpage dist
+        uses: actions/download-artifact@v4
+        with:
+          name: webpage-dist
+          path: backend/embed/dist/
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ✅ 登录 GHCR
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ✅ 登录 Docker Hub（需要你填 secrets）
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}  # ← 在 GitHub Secrets 里加
+          password: ${{ secrets.DOCKERHUB_TOKEN }}     # ← 用 Access Token，别用密码
+
+      # ✅ 生成双仓库 tags
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}
+            docker.io/${{ env.DOCKERHUB_IMAGE }}
+
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/main' }}
+
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+            type=sha,prefix=sha-,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+
+          # ✅ 自动推送到两个仓库
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+          build-args: |
+            VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('beta-{0}', github.sha) }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp }}
+
+      - name: Image digest
+        run: |
+          echo "✅ 推送完成"
+          echo "GHCR: ghcr.io/${{ github.repository }}"
+          echo "DockerHub: docker.io/${{ env.DOCKERHUB_IMAGE }}"
+          echo "Tags: ${{ steps.meta.outputs.tags }}"
+          echo "Digest: ${{ steps.build.outputs.digest }}"
